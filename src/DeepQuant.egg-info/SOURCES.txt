@@ -1,0 +1,11 @@
+README.md
+pyproject.toml
+setup.py
+src/DeepQuant/__init__.py
+src/DeepQuant/custom_tracer.py
+src/DeepQuant/export_brevitas.py
+src/DeepQuant.egg-info/PKG-INFO
+src/DeepQuant.egg-info/SOURCES.txt
+src/DeepQuant.egg-info/dependency_links.txt
+src/DeepQuant.egg-info/requires.txt
+src/DeepQuant.egg-info/top_level.txt

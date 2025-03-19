@@ -1,0 +1,14 @@
+torch>=2.1.2
+torchvision>=0.16.2
+torchaudio>=2.1.2
+brevitas>=0.11.0
+torchmetrics
+black
+isort
+pytest
+netron
+tabulate
+tqdm
+colorama
+onnx
+onnxoptimizer

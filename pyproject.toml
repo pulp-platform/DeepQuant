@@ -1,0 +1,53 @@
+# Copyright 2025 ETH Zurich and University of Bologna.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Federico Brancasi <fbrancasi@ethz.ch>
+
+[build-system]
+requires = ["setuptools>=69.0.0", "wheel", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "DeepQuant"
+version = "0.1.0"
+description = "Brevitas model export utility for quantized networks"
+requires-python = ">=3.11"
+authors = [
+    {name = "Federico Brancasi", email = "fbrancasi@ethz.ch"},
+]
+dependencies = [
+    "torch>=2.1.2",
+    "torchvision>=0.16.2",
+    "torchaudio>=2.1.2",
+    "brevitas>=0.11.0",
+    "torchmetrics",
+    "black",
+    "isort",
+    "pytest",
+    "netron",
+    "tabulate",
+    "tqdm",         
+    "colorama",
+    "onnx",
+    "onnxoptimizer",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["DeepQuant"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning"
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
