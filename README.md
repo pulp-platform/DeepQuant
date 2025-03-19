@@ -15,8 +15,8 @@ A Python library for exporting Brevitas quantized neural networks.
 First, create and activate a new conda environment:
 
 ```bash
-mamba create -n brevitas_env python=3.11
-mamba activate brevitas_env
+mamba create -n DeepQuant_env python=3.11
+mamba activate DeepQuant_env
 ```
 
 ### Install Dependencies

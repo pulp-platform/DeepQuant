@@ -1,0 +1,23 @@
+# Python compiled files and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging metadata and egg-info directories
+*.egg-info/
+custom_forwards.egg-info/
+DeepQuant.egg-info/
+
+# Distribution/build directories
+build/
+dist/
+*.egg
+
+# Log files and temporary files
+*.log
+*.tmp
+
+# Other temporary or system files (e.g., editor or OS files)
+.DS_Store
+.idea/
+.vscode/
