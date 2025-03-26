@@ -7,7 +7,7 @@
 .PHONY: test test-nn test-mha test-cnn
 
 # Test Directory
-TEST_DIR = src/DeepQuant/tests
+TEST_DIR = DeepQuant/tests
 
 # Pytest flags
 PYTEST_FLAGS = -v -s

@@ -10,16 +10,6 @@ related to torch.tensor constant registration in FX tracing.
 """
 
 import warnings
-import pytest
-
-# Attempt to import TracerWarning from torch.fx.proxy;
-# if unavailable, skip filtering by category.
-try:
-    from torch.fx.proxy import TracerWarning
-
-    warnings.filterwarnings("ignore", category=TracerWarning)
-except ImportError:
-    pass
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=UserWarning, message="Named tensors.*")

@@ -71,10 +71,10 @@ You can also run tests using pytest commands:
 
 ```bash
 # Run all tests
-python -m pytest src/DeepQuant/tests -v -s
+python -m pytest DeepQuant/tests -v -s
 
 # Run a specific test file
-python -m pytest src/DeepQuant/tests/test_simple_nn.py -v -s
+python -m pytest DeepQuant/tests/test_simple_nn.py -v -s
 ```
 
 ## Project Structure
@@ -84,22 +84,21 @@ DeepQuant/
 ├── Makefile
 ├── pyproject.toml
 ├── conftest.py
-└── src/
-    └── DeepQuant/
-        ├── custom_forwards/
-        │   ├── activations.py
-        │   ├── linear.py
-        │   └── multiheadattention.py
-        ├── injects/
-        │   ├── base.py
-        │   ├── executor.py
-        │   └── transformations.py
-        ├── tests/
-        │   ├── test_simple_mha.py
-        │   ├── test_simple_nn.py
-        │   └── test_simple_cnn.py
-        ├── custom_tracer.py
-        └── export_brevitas.py
+└── DeepQuant/
+    ├── custom_forwards/
+    │   ├── activations.py
+    │   ├── linear.py
+    │   └── multiheadattention.py
+    ├── injects/
+    │   ├── base.py
+    │   ├── executor.py
+    │   └── transformations.py
+    ├── tests/
+    │   ├── test_simple_mha.py
+    │   ├── test_simple_nn.py
+    │   └── test_simple_cnn.py
+    ├── custom_tracer.py
+    └── export_brevitas.py
 ```
 
 ### Key Components
