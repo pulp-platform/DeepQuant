@@ -174,6 +174,7 @@ def test_mnist_quant_export() -> None:
         nn.Linear: (
             qnn.QuantLinear,
             {
+                "input_quant": Int8ActPerTensorFloat,
                 "weight_quant": Int8WeightPerTensorFloat,
                 "output_quant": Int8ActPerTensorFloat,
                 "bias_quant": Int32Bias,
@@ -229,4 +230,4 @@ def test_mnist_quant_export() -> None:
     sample_input = sample_input[0:1]
     print(f"Sample input shape: {sample_input.shape}")
 
-    fx_model = exportBrevitas(model_quant, sample_input, debug=True)
+    fx_model = exportBrevitas(model_quant, sample_input.to(DEVICE), debug=True)

@@ -81,6 +81,8 @@ class SimpleQuantCNN(nn.Module):
             bias=True,
             weight_bit_width=4,
             bias_quant=Int32Bias,
+            input_quant=Int8ActPerTensorFloat,
+            weight_quant=Int8WeightPerTensorFloat,
             output_quant=Int8ActPerTensorFloat,
             return_quant_tensor=True,
         )

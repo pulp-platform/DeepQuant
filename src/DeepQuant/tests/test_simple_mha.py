@@ -40,7 +40,7 @@ class SimpleQuantMHA(nn.Module):
             embed_dim=embed_dim,
             num_heads=num_heads,
             dropout=0.0,
-            bias=False,
+            bias=True,
             packed_in_proj=False,  # separate Q, K, V
             batch_first=False,  # expects (sequence, batch, embed_dim)
             in_proj_input_quant=Int8ActPerTensorFloat,

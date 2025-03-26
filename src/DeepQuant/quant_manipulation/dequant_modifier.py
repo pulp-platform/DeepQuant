@@ -134,6 +134,8 @@ def unify_linear_dequants(
         new_dequant_mod_name = (
             node.target.replace(".wrapped_inner_forward_impl", "") + "_unified_dequant"
         )
+        # JUNGVI: Torch modules name cannot contain "."
+        new_dequant_mod_name = new_dequant_mod_name.replace(".", "_")
 
         unified_dequant_mod = Dequant(
             original_module=old_bias_dequant_mod.original_module,

@@ -42,9 +42,11 @@ def prepare_resnet18_model() -> nn.Module:
         nn.Conv2d: (
             qnn.QuantConv2d,
             {
+                "input_quant": Int8ActPerTensorFloat,
                 "weight_quant": Int8WeightPerTensorFloat,
                 "output_quant": Int8ActPerTensorFloat,
                 "bias_quant": Int32Bias,
+                "bias": True,
                 "return_quant_tensor": True,
                 "output_bit_width": 8,
                 "weight_bit_width": 8,
@@ -53,9 +55,12 @@ def prepare_resnet18_model() -> nn.Module:
         nn.Linear: (
             qnn.QuantLinear,
             {
+                "input_quant": Int8ActPerTensorFloat,
                 "weight_quant": Int8WeightPerTensorFloat,
                 "output_quant": Int8ActPerTensorFloat,
                 "bias_quant": Int32Bias,
+                "bias": True,
+                "weight_bit_width": 4,
                 "return_quant_tensor": True,
                 "output_bit_width": 8,
                 "weight_bit_width": 8,

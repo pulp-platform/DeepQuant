@@ -312,13 +312,13 @@ def exportBrevitas(
     onnx.save(inferred_model, onnx_file)
 
     input_file: str = EXPORT_FOLDER / "inputs.npz"
-    np.savez(input_file, input=example_input.numpy())
-    print("Input npz: ", example_input.numpy())
+    np.savez(input_file, input=example_input.cpu())
+    print("Input npz: ", example_input)
     print(f"Input data saved to {input_file} ✓")
 
     # onnxruntime to run the exported model
     ort_session: ort.InferenceSession = ort.InferenceSession(onnx_file)
-    ort_inputs: dict = {"input": example_input.numpy()}
+    ort_inputs: dict = {"input": example_input.cpu().numpy()}
     ort_output: np.ndarray = ort_session.run(None, ort_inputs)[0]
 
     output_file: str = EXPORT_FOLDER / "outputs.npz"
