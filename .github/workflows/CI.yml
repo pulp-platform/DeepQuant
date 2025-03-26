@@ -26,7 +26,7 @@ jobs:
   single-layer-tests:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/victor-jung/deepquant:main
+      image: ghcr.io/pulp-platform/deepquant:main
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
