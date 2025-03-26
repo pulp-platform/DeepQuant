@@ -11,5 +11,7 @@ WORKDIR /app
 
 COPY pyproject.toml .
 
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install .
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install toml-to-requirements && \
+    toml-to-req --toml-file pyproject.toml && \
+    pip install -r requirements.txt
