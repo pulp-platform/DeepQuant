@@ -44,6 +44,7 @@ def prepare_resnet18_model() -> nn.Module:
             {
                 "weight_quant": Int8WeightPerTensorFloat,
                 "output_quant": Int8ActPerTensorFloat,
+                "input_quant": Int8ActPerTensorFloat,
                 "bias_quant": Int32Bias,
                 "return_quant_tensor": True,
                 "output_bit_width": 8,
@@ -55,6 +56,7 @@ def prepare_resnet18_model() -> nn.Module:
             {
                 "weight_quant": Int8WeightPerTensorFloat,
                 "output_quant": Int8ActPerTensorFloat,
+                "input_quant": Int8ActPerTensorFloat,
                 "bias_quant": Int32Bias,
                 "return_quant_tensor": True,
                 "output_bit_width": 8,
