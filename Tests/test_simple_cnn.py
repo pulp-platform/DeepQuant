@@ -112,7 +112,7 @@ class SimpleQuantCNN(nn.Module):
         return x
 
 
-def test_simple_quant_cnn() -> None:
+def deepQuantTestSimpleQuantCNN() -> None:
     """
     Test function for the SimpleQuantCNN using exportBrevitas.
     Ensures both the forward pass and the FX tracing work properly.

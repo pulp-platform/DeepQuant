@@ -131,7 +131,7 @@ def calibrate_model(
             model(images)
 
 
-def test_mnist_quant_export() -> None:
+def deepQuantTestMnistQuantExport() -> None:
     """Main execution function."""
     
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -115,7 +115,7 @@ def prepare_resnet18_model() -> nn.Module:
     return quantized_resnet
 
 
-def test_resnet18_quant_export() -> None:
+def deepQuantTestResnet18QuantExport() -> None:
     """
     Test function for exporting a quantized ResNet18 using BrevitasExporter.
     Validates the export process by running exportBrevitas and printing the FX graph.

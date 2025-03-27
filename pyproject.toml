@@ -39,6 +39,7 @@ dependencies = [
 packages = ["DeepQuant"]
 
 [tool.pytest.ini_options]
+python_functions = ["deepQuantTest*"]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::UserWarning"

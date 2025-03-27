@@ -72,7 +72,7 @@ class SimpleQuantMHA(nn.Module):
         return out
 
 
-def test_simple_quant_mha() -> None:
+def deepQuantTestSimpleQuantMHA() -> None:
     """
     Test function for the SimpleQuantMHA using exportBrevitas.
     Verifies both the forward pass and the export tracing.

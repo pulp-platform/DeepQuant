@@ -94,7 +94,7 @@ class SimpleQuantNN(nn.Module):
         return x
 
 
-def test_simple_quant_nn() -> None:
+def deepQuantTestSimpleQuantNN() -> None:
     """
     Test function for the SimpleQuantNN using exportBrevitas.
     Tests both the model's functionality and the export process.
