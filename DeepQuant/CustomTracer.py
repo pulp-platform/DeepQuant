@@ -9,7 +9,6 @@ Custom Brevitas tracer implementation for handling module transformation and tra
 """
 
 import torch.nn as nn
-import torch.fx as fx
 from brevitas.fx.brevitas_tracer import (
     _symbolic_trace,
     _is_brevitas_leaf_module,
@@ -30,8 +29,8 @@ class CustomBrevitasTracer(Tracer):
 
     def __init__(
         self,
-        leaf_classes: Optional[List[Type[nn.Module]]] = None,
-        non_leaf_classes: Optional[List[Type[nn.Module]]] = None,
+        leafClasses: Optional[List[Type[nn.Module]]] = None,
+        nonLeafClasses: Optional[List[Type[nn.Module]]] = None,
         debug: bool = False,
     ) -> None:
         """
@@ -43,31 +42,31 @@ class CustomBrevitasTracer(Tracer):
             debug: Whether to print debug information during tracing.
         """
         super().__init__()
-        self.leaf_classes = leaf_classes if leaf_classes is not None else []
-        self.non_leaf_classes = non_leaf_classes if non_leaf_classes is not None else []
+        self.leafClasses = leafClasses if leafClasses is not None else []
+        self.nonLeafClasses = nonLeafClasses if nonLeafClasses is not None else []
         self.debug = debug
 
-    def register_leaf_module(self, module_cls: Type[nn.Module]) -> None:
+    def registerLeafModule(self, moduleCls: Type[nn.Module]) -> None:
         """
         Add a module class to the list of leaf modules.
 
         Args:
             module_cls: The module class to register as a leaf module.
         """
-        if module_cls not in self.leaf_classes:
-            self.leaf_classes.append(module_cls)
+        if moduleCls not in self.leafClasses:
+            self.leafClasses.append(moduleCls)
 
-    def register_non_leaf_module(self, module_cls: Type[nn.Module]) -> None:
+    def registerNonLeafModule(self, moduleCls: Type[nn.Module]) -> None:
         """
         Add a module class to the list of non-leaf modules.
 
         Args:
             module_cls: The module class to register as a non-leaf module.
         """
-        if module_cls not in self.non_leaf_classes:
-            self.non_leaf_classes.append(module_cls)
+        if moduleCls not in self.nonLeafClasses:
+            self.nonLeafClasses.append(moduleCls)
 
-    def is_leaf_module(self, m: nn.Module, module_qualified_name: str) -> bool:
+    def is_leaf_module(self, m: nn.Module, moduleQualifiedName: str) -> bool:
         """
         Determine whether a module should be treated as a leaf module.
 
@@ -84,16 +83,16 @@ class CustomBrevitasTracer(Tracer):
             bool: True if the module should be treated as a leaf module, False otherwise.
         """
         # First check explicitly registered classes
-        if any(isinstance(m, lc) for lc in self.leaf_classes):
+        if any(isinstance(m, lc) for lc in self.leafClasses):
             return True
-        if any(isinstance(m, nlc) for nlc in self.non_leaf_classes):
+        if any(isinstance(m, nlc) for nlc in self.nonLeafClasses):
             return False
         # Fall back to default Brevitas behavior
-        return _is_brevitas_leaf_module(m, module_qualified_name)
+        return _is_brevitas_leaf_module(m, moduleQualifiedName)
 
 
-def custom_brevitas_trace(
-    root: nn.Module, concrete_args=None, tracer: Optional[CustomBrevitasTracer] = None
+def customBrevitasTrace(
+    root: nn.Module, concreteArgs=None, tracer: Optional[CustomBrevitasTracer] = None
 ) -> GraphModule:
     """
     Create an FX GraphModule using the CustomBrevitasTracer.
@@ -108,4 +107,4 @@ def custom_brevitas_trace(
     """
     if tracer is None:
         tracer = CustomBrevitasTracer()
-    return _symbolic_trace(tracer, root, concrete_args)
+    return _symbolic_trace(tracer, root, concreteArgs)

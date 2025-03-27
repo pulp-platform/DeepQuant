@@ -4,11 +4,6 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-"""
-Test file demonstrating an example of a small neural network
-(Linear + ReLU + Linear + Sigmoid) and exporting it via the exportBrevitas function.
-"""
-
 ### PyTorch Imports ###
 import torch
 import torch.nn as nn
@@ -19,9 +14,8 @@ from brevitas.quant.scaled_int import (
     Int8ActPerTensorFloat,
     Int32Bias,
     Int8WeightPerTensorFloat,
-    Uint8ActPerTensorFloat,
 )
-from DeepQuant.export_brevitas import exportBrevitas
+from DeepQuant.ExportBrevitas import exportBrevitas
 
 
 class SimpleQuantNN(nn.Module):
@@ -40,7 +34,7 @@ class SimpleQuantNN(nn.Module):
                              and input features for the second linear.
         """
         super().__init__()
-        self.input_quant = qnn.QuantIdentity(return_quant_tensor=True)
+        self.inputQuant = qnn.QuantIdentity(return_quant_tensor=True)
 
         self.linear1 = qnn.QuantLinear(
             in_features=in_features,
@@ -86,7 +80,7 @@ class SimpleQuantNN(nn.Module):
         Returns:
             A tensor with shape [batch_size, any_dim, 1] after the final sigmoid.
         """
-        x = self.input_quant(x)
+        x = self.inputQuant(x)
         x = self.linear1(x)
         x = self.relu(x)
         x = self.linear2(x)
@@ -102,12 +96,9 @@ def deepQuantTestSimpleQuantNN() -> None:
     Returns:
         None
     """
-    # Set random seed for reproducibility
     torch.manual_seed(42)
 
-    # Initialize model in eval mode
     model = SimpleQuantNN().eval()
-    sample_input = torch.randn(1, 4, 16)  # [batch=1, 4, 16 features]
+    sampleInput = torch.randn(1, 4, 16)
 
-    # Export the model using Brevitas
-    fx_model = exportBrevitas(model, sample_input, debug=True)
+    exportBrevitas(model, sampleInput, debug=True)

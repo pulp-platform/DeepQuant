@@ -4,11 +4,7 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-"""
-Custom forward implementations for Brevitas QuantLinear layers.
-"""
 
-import torch
 import torch.nn as nn
 from torch import Tensor
 from brevitas.nn.quant_layer import QuantWeightBiasInputOutputLayer
@@ -16,27 +12,27 @@ from brevitas.nn.quant_layer import QuantWeightBiasInputOutputLayer
 
 class InnerForwardImplWrapperLinear(nn.Module):
     """
-    A small wrapper around the 'inner_forward_impl' of a Brevitas QuantLinear
+    A small wrapper around the 'innerForwardImpl' of a Brevitas QuantLinear
     (QuantWeightBiasInputOutputLayer).
 
-    We want to expose the logic within 'inner_forward_impl' as a standalone
+    We want to expose the logic within 'innerForwardImpl' as a standalone
     submodule, so that FX tracing can see it as a leaf.
     """
 
-    def __init__(self, inner_forward_impl: nn.Module) -> None:
+    def __init__(self, innerForwardImpl: nn.Module) -> None:
         """
         Args:
-            inner_forward_impl: The original function that processes
+            innerForwardImpl: The original function that processes
                                 (quant_input, quant_weight, quant_bias).
         """
         super().__init__()
-        self.inner_forward_impl = inner_forward_impl
+        self.innerForwardImpl = innerForwardImpl
 
     def forward(
-        self, quant_input: Tensor, quant_weight: Tensor, quant_bias: Tensor
+        self, quantInput: Tensor, quantWeight: Tensor, quantBias: Tensor
     ) -> Tensor:
         """
-        Applies the wrapped inner_forward_impl.
+        Applies the wrapped innerForwardImpl.
 
         Args:
             quant_input: Input after input_quant.
@@ -46,10 +42,10 @@ class InnerForwardImplWrapperLinear(nn.Module):
         Returns:
             A torch.Tensor with the linear operation applied.
         """
-        return self.inner_forward_impl(quant_input, quant_weight, quant_bias)
+        return self.innerForwardImpl(quantInput, quantWeight, quantBias)
 
 
-def quantWBIOL_forward(self: QuantWeightBiasInputOutputLayer, inp: Tensor) -> Tensor:
+def quantWBIOLForward(self: QuantWeightBiasInputOutputLayer, inp: Tensor) -> Tensor:
     """
     Unrolled forward pass for a Brevitas QuantLinear:
 
@@ -57,7 +53,7 @@ def quantWBIOL_forward(self: QuantWeightBiasInputOutputLayer, inp: Tensor) -> Te
       1) self.input_quant
       2) self.weight_quant
       3) self.bias_quant (if bias is present)
-      4) inner_forward_impl (wrapped)
+      4) innerForwardImpl (wrapped)
       5) self.output_quant
 
     Args:
@@ -67,13 +63,13 @@ def quantWBIOL_forward(self: QuantWeightBiasInputOutputLayer, inp: Tensor) -> Te
     Returns:
         Output Tensor after the unrolled quantized linear steps.
     """
-    quant_input = self.input_quant(inp)
-    quant_weight = self.weight_quant(self.weight)
+    quantInput = self.input_quant(inp)
+    quantWeight = self.weight_quant(self.weight)
 
-    quant_bias = None
+    quantBias = None
     if self.bias is not None:
-        quant_bias = self.bias_quant(self.bias, quant_input, quant_weight)
+        quantBias = self.bias_quant(self.bias, quantInput, quantWeight)
 
-    output = self.wrapped_inner_forward_impl(quant_input, quant_weight, quant_bias)
-    quant_output = self.output_quant(output)
-    return quant_output
+    output = self.wrappedInnerForwardImpl(quantInput, quantWeight, quantBias)
+    quantOutput = self.output_quant(output)
+    return quantOutput

@@ -36,9 +36,9 @@ jobs:
           pip install -e .
       - name: Run Tests
         run: |
-          pytest Tests/test_simple_cnn.py
-          pytest Tests/test_simple_mha.py
-          pytest Tests/test_simple_nn.py
+          pytest Tests/TestSimpleCNN.py
+          pytest Tests/TestSimpleMHA.py
+          pytest Tests/TestSimpleNN.py
 
   model-tests:
     runs-on: ubuntu-latest
@@ -55,4 +55,4 @@ jobs:
           pip install -e .
       - name: Run Tests
         run: |
-          pytest Tests/test_mnist.py
+          pytest Tests/TestMnist.py

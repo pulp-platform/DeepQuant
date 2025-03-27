@@ -4,11 +4,7 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-"""
-Custom forward implementations for Brevitas QuantActivation layers.
-"""
 
-import torch
 import torch.nn as nn
 from torch import Tensor
 from brevitas.nn.quant_layer import QuantNonLinearActLayer
@@ -22,15 +18,15 @@ class InnerForwardImplWrapperActivation(nn.Module):
     so that FX tracing can display it as a separate node.
     """
 
-    def __init__(self, act_impl: nn.Module) -> None:
+    def __init__(self, actImpl: nn.Module) -> None:
         """
         Args:
             act_impl: The original activation function module (e.g. an instance of nn.ReLU).
         """
         super().__init__()
-        self.act_impl = act_impl
+        self.actImpl = actImpl
 
-    def forward(self, quant_input: Tensor) -> Tensor:
+    def forward(self, quantInput: Tensor) -> Tensor:
         """
         Applies the wrapped activation function.
 
@@ -40,10 +36,10 @@ class InnerForwardImplWrapperActivation(nn.Module):
         Returns:
             Output tensor after applying the activation.
         """
-        return self.act_impl(quant_input)
+        return self.actImpl(quantInput)
 
 
-def quant_activation_forward(self: QuantNonLinearActLayer, inp: Tensor) -> Tensor:
+def quantActivationForward(self: QuantNonLinearActLayer, inp: Tensor) -> Tensor:
     """
     Unrolled forward pass for a Brevitas QuantActivation layer.
 
@@ -59,11 +55,12 @@ def quant_activation_forward(self: QuantNonLinearActLayer, inp: Tensor) -> Tenso
     Returns:
         Output tensor after applying activation and output quantization.
     """
-    quant_input = self.input_quant(inp) if self.input_quant is not None else inp
+    quantInput = self.input_quant(inp) if self.input_quant is not None else inp
     # Use the wrapped activation if available; otherwise pass through.
-    if hasattr(self, "wrapped_act_impl"):
-        output = self.wrapped_act_impl(quant_input)
+    if hasattr(self, "wrappedActImpl"):
+        output = self.wrappedActImpl(quantInput)
     else:
-        output = quant_input
-    quant_output = self.act_quant(output) if self.act_quant is not None else output
-    return quant_output
+        output = quantInput
+        import IPython; IPython.embed()
+    quantOutput = self.act_quant(output) if self.act_quant is not None else output
+    return quantOutput

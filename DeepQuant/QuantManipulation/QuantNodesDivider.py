@@ -11,7 +11,7 @@ while skipping activation quant nodes to preserve nonzero outputs.
 
 import torch.fx as fx
 from typing import Dict, Any, List, Tuple
-from .quant_dequant_nodes import Quant, Dequant
+from .QuantDequantNodes import Quant, Dequant
 import torch.nn as nn
 
 BLUE = "\033[94m"

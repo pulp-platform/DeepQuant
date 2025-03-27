@@ -11,8 +11,8 @@ Executor module for handling transformation sequences in the Brevitas export pro
 import torch
 import torch.nn as nn
 from typing import List, Optional
-from .base import TransformationPass
-from ..custom_tracer import CustomBrevitasTracer
+from .Base import TransformationPass
+from ..CustomTracer import CustomBrevitasTracer
 
 # ANSI color codes
 BLUE = "\033[94m"
@@ -46,7 +46,7 @@ class TransformationExecutor:
         self.debug = debug
         self.tracer = tracer
 
-    def execute(self, model: nn.Module, example_input: torch.Tensor) -> nn.Module:
+    def execute(self, model: nn.Module, exampleInput: torch.Tensor) -> nn.Module:
         """
         Execute all transformations on the model in sequence.
 
@@ -67,18 +67,18 @@ class TransformationExecutor:
         """
         model.eval()
         with torch.no_grad():
-            output_before = model(example_input)
-            if isinstance(output_before, tuple):
-                output_before = output_before[0]
+            outputBefore = model(exampleInput)
+            if isinstance(outputBefore, tuple):
+                outputBefore = outputBefore[0]
 
             for transformation in self.transformations:
                 if transformation.transform(model, tracer=self.tracer):
-                    output_after = model(example_input)
-                    if isinstance(output_after, tuple):
-                        output_after = output_after[0]
+                    outputAfter = model(exampleInput)
+                    if isinstance(outputAfter, tuple):
+                        outputAfter = outputAfter[0]
 
-                    if not transformation.validate_transformation(
-                        output_before, output_after
+                    if not transformation.validateTransformation(
+                        outputBefore, outputAfter
                     ):
                         raise RuntimeError(
                             f"{RED} ✗ {transformation.__class__.__name__} failed - outputs mismatch{ENDC}"
@@ -87,10 +87,10 @@ class TransformationExecutor:
                     if self.debug:
                         print(
                             f"{BLUE} ✓ {transformation.__class__.__name__} transformation successful\n{ENDC}"
-                            f"      leaf_classes: {self.tracer.leaf_classes}\n"
-                            f"      non_leaf_classes: {self.tracer.non_leaf_classes}\n"
+                            f"      leafClasses: {self.tracer.leafClasses}\n"
+                            f"      nonLeafClasses: {self.tracer.nonLeafClasses}\n"
                         )
 
-                    output_before = output_after
+                    outputBefore = outputAfter
 
         return model

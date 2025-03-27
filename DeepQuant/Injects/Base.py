@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Union, Tuple
-from ..custom_tracer import CustomBrevitasTracer
+from ..CustomTracer import CustomBrevitasTracer
 
 
 class TransformationPass(ABC):
@@ -31,8 +31,8 @@ class TransformationPass(ABC):
 
     def __init__(
         self,
-        module_cls: Union[type, Tuple[type, ...]],
-        validation_tol: float = 1e-6,
+        moduleCls: Union[type, Tuple[type, ...]],
+        validationTol: float = 1e-6,
     ) -> None:
         """
         Initialize a transformation pass.
@@ -42,10 +42,10 @@ class TransformationPass(ABC):
             injection_fn: Function that modifies the module's forward pass.
             validation_tol: Tolerance for numerical comparison in validation.
         """
-        self.module_cls = module_cls
-        self.validation_tol = validation_tol
+        self.moduleCls = moduleCls
+        self.validationTol = validationTol
 
-    def check_module_type(self, module: nn.Module) -> bool:
+    def checkModuleType(self, module: nn.Module) -> bool:
         """
         Check if a module is an instance of the target class(es).
 
@@ -55,10 +55,10 @@ class TransformationPass(ABC):
         Returns:
             bool: True if module is an instance of self.module_cls.
         """
-        return isinstance(module, self.module_cls)
+        return isinstance(module, self.moduleCls)
 
     @abstractmethod
-    def inject_forward(
+    def injectForward(
         self, module: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
     ) -> None:
         """
@@ -70,8 +70,8 @@ class TransformationPass(ABC):
         """
         pass
 
-    def validate_transformation(
-        self, output_before: Any, output_after: Any, atol: Optional[float] = None
+    def validateTransformation(
+        self, outputBefore: Any, outputAfter: Any, atol: Optional[float] = None
     ) -> bool:
         """
         Validate transformation by comparing outputs.
@@ -85,8 +85,8 @@ class TransformationPass(ABC):
             bool: True if outputs match within tolerance.
         """
         if atol is None:
-            atol = self.validation_tol
-        return torch.allclose(output_before, output_after, atol=atol)
+            atol = self.validationTol
+        return torch.allclose(outputBefore, outputAfter, atol=atol)
 
     def transform(
         self, model: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
@@ -101,9 +101,9 @@ class TransformationPass(ABC):
         Returns:
             bool: True if any modules were transformed.
         """
-        transform_done = False
+        transformDone = False
         for _, submodule in model.named_modules():
-            if self.check_module_type(submodule):
-                self.inject_forward(submodule, tracer)
-                transform_done = True
-        return transform_done
+            if self.checkModuleType(submodule):
+                self.injectForward(submodule, tracer)
+                transformDone = True
+        return transformDone

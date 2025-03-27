@@ -4,9 +4,6 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-"""
-Complete script for MNIST model training, quantization, and transformation.
-"""
 
 import warnings
 
@@ -21,7 +18,6 @@ warnings.filterwarnings(
 )
 warnings.filterwarnings("ignore", category=UserWarning, message=".*deprecated.*")
 
-import copy
 from pathlib import Path
 from tqdm import tqdm
 
@@ -41,7 +37,7 @@ from brevitas.quant import (
     Uint8ActPerTensorFloat,
 )
 
-from DeepQuant.export_brevitas import exportBrevitas
+from DeepQuant.ExportBrevitas import exportBrevitas
 
 
 class SimpleFCModel(nn.Module):
@@ -62,44 +58,44 @@ class SimpleFCModel(nn.Module):
         return self.fc(x)
 
 
-def train_model(
+def trainModel(
     model: nn.Module,
-    train_loader: DataLoader,
-    test_loader: DataLoader,
-    save_path: Path,
+    trainLoader: DataLoader,
+    testLoader: DataLoader,
+    savePath: Path,
     epochs: int = 10,
-    learning_rate: float = 0.001,
+    learningRate: float = 0.001,
 ) -> nn.Module:
     """Train the model if no saved weights exist."""
 
-    if save_path.exists():
-        print(f"Loading existing model from {save_path}")
-        model.load_state_dict(torch.load(save_path))
+    if savePath.exists():
+        print(f"Loading existing model from {savePath}")
+        model.load_state_dict(torch.load(savePath))
         return model
 
     print("No saved model found. Starting training...")
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learningRate)
 
     for epoch in range(epochs):
         model.train()
-        running_loss = 0.0
-        for images, labels in train_loader:
+        runningLoss = 0.0
+        for images, labels in trainLoader:
             optimizer.zero_grad()
             outputs = model(images)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            running_loss += loss.item()
+            runningLoss += loss.item()
 
-        print(f"Epoch [{epoch+1}/{epochs}], Loss: {running_loss/len(train_loader):.4f}")
+        print(f"Epoch [{epoch+1}/{epochs}], Loss: {runningLoss/len(trainLoader):.4f}")
 
     # Evaluate
     model.eval()
     correct = 0
     total = 0
     with torch.no_grad():
-        for images, labels in test_loader:
+        for images, labels in testLoader:
             outputs = model(images)
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
@@ -108,8 +104,8 @@ def train_model(
     print(f"Accuracy on the test set: {100 * correct / total:.2f}%")
 
     # Save model
-    torch.save(model.state_dict(), save_path)
-    print(f"Model saved to {save_path}")
+    torch.save(model.state_dict(), savePath)
+    print(f"Model saved to {savePath}")
 
     return model
 
@@ -130,19 +126,14 @@ def calibrate_model(
             images = images.to(torch.float)
             model(images)
 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+EXPORT_FOLDER = Path().cwd() / "Tests"
+MODEL_PATH = EXPORT_FOLDER / "Models"
+DATA_PATH = EXPORT_FOLDER / "Data"
 
 def deepQuantTestMnistQuantExport() -> None:
-    """Main execution function."""
     
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Setup paths and device
-    EXPORT_FOLDER = Path().cwd()
-    if Path().cwd().name != "./Tests/":
-        EXPORT_FOLDER = EXPORT_FOLDER / "Tests"
     EXPORT_FOLDER.mkdir(parents=True, exist_ok=True)
-
-    MODEL_PATH = EXPORT_FOLDER / "Models"
     MODEL_PATH.mkdir(parents=True, exist_ok=True)
 
     # Data loading
@@ -154,26 +145,28 @@ def deepQuantTestMnistQuantExport() -> None:
     )
 
     train_dataset = datasets.MNIST(
-        root=EXPORT_FOLDER / "Data", train=True, download=True, transform=transform
+        root=DATA_PATH, train=True, download=True, transform=transform
     )
     test_dataset = datasets.MNIST(
-        root=EXPORT_FOLDER / "Data", train=False, download=True, transform=transform
+        root=DATA_PATH, train=False, download=True, transform=transform
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    test_loader = DataLoader(
+    trainLoader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    testLoader = DataLoader(
         test_dataset, batch_size=64, shuffle=False, pin_memory=True
     )
 
     # Train or load model
-    model = SimpleFCModel()
-    model = train_model(model, train_loader, test_loader, MODEL_PATH / "mnist_fc.pth")
+    m = SimpleFCModel()
+    m = trainModel(m, trainLoader, testLoader, MODEL_PATH / "mnist_model.pth")
 
+    import copy
+    model = copy.deepcopy(m)
     # Prepare for quantization
     model = preprocess_for_quantize(model)
 
     # Quantization configurations
-    compute_layer_map = {
+    computeLayerMap = {
         nn.Linear: (
             qnn.QuantLinear,
             {
@@ -188,7 +181,7 @@ def deepQuantTestMnistQuantExport() -> None:
         ),
     }
 
-    quant_act_map = {
+    quantActMap = {
         nn.ReLU: (
             qnn.QuantReLU,
             {
@@ -199,7 +192,7 @@ def deepQuantTestMnistQuantExport() -> None:
         ),
     }
 
-    quant_identity_map = {
+    quantIdentityMap = {
         "signed": (
             qnn.QuantIdentity,
             {
@@ -219,18 +212,18 @@ def deepQuantTestMnistQuantExport() -> None:
     }
 
     # Quantize and calibrate
-    model_quant = quantize(
+    modelQuant = quantize(
         copy.deepcopy(model),
-        compute_layer_map=compute_layer_map,
-        quant_act_map=quant_act_map,
-        quant_identity_map=quant_identity_map,
+        compute_layer_map=computeLayerMap,
+        quant_act_map=quantActMap,
+        quant_identity_map=quantIdentityMap,
     )
 
-    calibrate_model(model_quant, test_loader, DEVICE)
+    calibrate_model(modelQuant, testLoader, DEVICE)
 
     # Export and transform
-    sample_input, _ = next(iter(test_loader))
-    sample_input = sample_input[0:1]
-    print(f"Sample input shape: {sample_input.shape}")
+    sampleInput, _ = next(iter(testLoader))
+    sampleInput = sampleInput[0:1]
+    print(f"Sample input shape: {sampleInput.shape}")
 
-    fx_model = exportBrevitas(model_quant, sample_input.to(DEVICE), debug=True)
+    exportBrevitas(modelQuant, sampleInput.to(DEVICE), debug=True)

@@ -4,16 +4,12 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-"""
-Test file demonstrating an example of a model with Brevitas QuantMultiheadAttention
-and exporting it via the exportBrevitas function.
-"""
 
 import torch
 import torch.nn as nn
 import brevitas.nn as qnn
 from torch import Tensor
-from DeepQuant.export_brevitas import exportBrevitas
+from DeepQuant.ExportBrevitas import exportBrevitas
 
 from brevitas.quant.scaled_int import (
     Int8ActPerTensorFloat,
@@ -24,9 +20,6 @@ from brevitas.quant.scaled_int import (
 
 
 class SimpleQuantMHA(nn.Module):
-    """
-    Simple example model that includes a Brevitas QuantMultiheadAttention layer.
-    """
 
     def __init__(self, embed_dim: int, num_heads: int) -> None:
         """
@@ -35,7 +28,7 @@ class SimpleQuantMHA(nn.Module):
             num_heads: The number of attention heads.
         """
         super().__init__()
-        self.input_quant = qnn.QuantIdentity(return_quant_tensor=True)
+        self.inputQuant = qnn.QuantIdentity(return_quant_tensor=True)
         self.mha = qnn.QuantMultiheadAttention(
             embed_dim=embed_dim,
             num_heads=num_heads,
@@ -67,22 +60,16 @@ class SimpleQuantMHA(nn.Module):
             A tuple (output, None) as per the Brevitas MHA API, where output has shape
             [sequence_len, batch_size, embed_dim].
         """
-        x = self.input_quant(x)
-        out = self.mha(x, x, x)  # brevitas version returns (output, None)
+        x = self.inputQuant(x)
+        out = self.mha(x, x, x)
         return out
 
 
 def deepQuantTestSimpleQuantMHA() -> None:
-    """
-    Test function for the SimpleQuantMHA using exportBrevitas.
-    Verifies both the forward pass and the export tracing.
 
-    Returns:
-        None
-    """
     torch.manual_seed(42)
 
     model = SimpleQuantMHA(embed_dim=16, num_heads=4).eval()
-    sample_input = torch.randn(10, 2, 16)  # [sequence=10, batch=2, embed_dim=16]
+    sampleInput = torch.randn(10, 2, 16)
 
-    fx_model = exportBrevitas(model, sample_input, debug=True)
+    exportBrevitas(model, sampleInput, debug=True)

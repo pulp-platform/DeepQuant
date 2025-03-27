@@ -18,10 +18,10 @@ from brevitas.quant import (
 )
 from brevitas.graph.quantize import quantize
 
-from DeepQuant.export_brevitas import exportBrevitas
+from DeepQuant.ExportBrevitas import exportBrevitas
 
 
-def prepare_resnet18_model() -> nn.Module:
+def prepareResnet18Model() -> nn.Module:
     """
     Prepare a quantized ResNet18 model for testing.
     Steps:
@@ -33,12 +33,10 @@ def prepare_resnet18_model() -> nn.Module:
     Returns:
         A quantized ResNet18 model ready for export tests.
     """
-    base_model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-    base_model = base_model.eval()
+    baseModel = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+    baseModel = baseModel.eval()
 
-    compute_layer_map = {
-        # PROBLEM WITH TruncAvgPool2d USED WITH quant_inference_mode
-        # nn.AvgPool2d: (qnn.TruncAvgPool2d, {"return_quant_tensor": True}),
+    computeLayerMap = {
         nn.Conv2d: (
             qnn.QuantConv2d,
             {
@@ -68,7 +66,7 @@ def prepare_resnet18_model() -> nn.Module:
         ),
     }
 
-    quant_act_map = {
+    quantActMap = {
         nn.ReLU: (
             qnn.QuantReLU,
             {
@@ -79,7 +77,7 @@ def prepare_resnet18_model() -> nn.Module:
         ),
     }
 
-    quant_identity_map = {
+    quantIdentityMap = {
         "signed": (
             qnn.QuantIdentity,
             {
@@ -98,36 +96,28 @@ def prepare_resnet18_model() -> nn.Module:
         ),
     }
 
-    base_model = preprocess_for_quantize(
-        base_model, equalize_iters=20, equalize_scale_computation="range"
+    baseModel = preprocess_for_quantize(
+        baseModel, equalize_iters=20, equalize_scale_computation="range"
     )
-    base_model = AdaptiveAvgPoolToAvgPool().apply(
-        base_model, torch.ones(1, 3, 224, 224)
-    )
-
-    quantized_resnet = quantize(
-        base_model,
-        compute_layer_map=compute_layer_map,
-        quant_act_map=quant_act_map,
-        quant_identity_map=quant_identity_map,
+    baseModel = AdaptiveAvgPoolToAvgPool().apply(
+        baseModel, torch.ones(1, 3, 224, 224)
     )
 
-    return quantized_resnet
+    quantizedResnet = quantize(
+        graph_model=baseModel,
+        compute_layer_map=computeLayerMap,
+        quant_act_map=quantActMap,
+        quant_identity_map=quantIdentityMap,
+    )
+
+    return quantizedResnet
 
 
 def deepQuantTestResnet18QuantExport() -> None:
-    """
-    Test function for exporting a quantized ResNet18 using BrevitasExporter.
-    Validates the export process by running exportBrevitas and printing the FX graph.
-
-    Returns:
-        None
-    """
-    print("\n=== Testing BrevitasExporter with a quantized ResNet18 ===\n")
 
     torch.manual_seed(42)
 
-    quantized_model = prepare_resnet18_model()
-    sample_input = torch.randn(1, 3, 224, 224)
+    quantizedModel = prepareResnet18Model()
+    sampleInput = torch.randn(1, 3, 224, 224)
 
-    fx_model = exportBrevitas(quantized_model, sample_input, debug=True)
+    exportBrevitas(quantizedModel, sampleInput, debug=True)
