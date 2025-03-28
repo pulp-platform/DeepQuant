@@ -5,6 +5,7 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 
+import pytest
 import torch
 import torch.nn as nn
 import brevitas.nn as qnn
@@ -96,7 +97,8 @@ class SimpleQuantCNN(nn.Module):
         return x
 
 
-def deepQuantTestSimpleQuantCNN() -> None:
+@pytest.mark.ModelTests
+def deepQuantTestSimpleCNN() -> None:
     
     torch.manual_seed(42)
 

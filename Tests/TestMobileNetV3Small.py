@@ -2,8 +2,7 @@
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Federico Brancasi <fbrancasi@ethz.ch>
-
+# Victor Juing <jungvi@ethz.ch>
 
 import pytest
 import torch
@@ -23,19 +22,19 @@ from brevitas.graph.quantize import quantize
 from DeepQuant.ExportBrevitas import exportBrevitas
 
 
-def prepareResnet18Model() -> nn.Module:
+def prepareMBNetV3Model() -> nn.Module:
     """
-    Prepare a quantized ResNet18 model for testing.
+    Prepare a quantized MobileNetV3Small model for testing.
     Steps:
-      1) Load the torchvision ResNet18.
+      1) Load the torchvision MobileNetV3Small.
       2) Convert it to eval mode.
       3) Preprocess and adapt average pooling.
       4) Quantize it using Brevitas.
 
     Returns:
-        A quantized ResNet18 model ready for export tests.
+        A quantized MobileNetV3Small model ready for export tests.
     """
-    baseModel = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+    baseModel = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
     baseModel = baseModel.eval()
 
     computeLayerMap = {
@@ -49,7 +48,7 @@ def prepareResnet18Model() -> nn.Module:
                 "bias": True,
                 "return_quant_tensor": True,
                 "output_bit_width": 8,
-                "weight_bit_width": 8,
+                "weight_bit_width": 4,
             },
         ),
         nn.Linear: (
@@ -62,7 +61,7 @@ def prepareResnet18Model() -> nn.Module:
                 "bias": True,
                 "return_quant_tensor": True,
                 "output_bit_width": 8,
-                "weight_bit_width": 8,
+                "weight_bit_width": 4,
             },
         ),
     }
@@ -104,22 +103,22 @@ def prepareResnet18Model() -> nn.Module:
         baseModel, torch.ones(1, 3, 224, 224)
     )
 
-    quantizedResnet = quantize(
+    quantizedModel = quantize(
         graph_model=baseModel,
         compute_layer_map=computeLayerMap,
         quant_act_map=quantActMap,
         quant_identity_map=quantIdentityMap,
     )
 
-    return quantizedResnet
+    return quantizedModel
 
 
 @pytest.mark.ModelTests
-def deepQuantTestResnet18() -> None:
+def deepQuantTestMobileNetV3Small() -> None:
 
     torch.manual_seed(42)
 
-    quantizedModel = prepareResnet18Model()
+    quantizedModel = prepareMBNetV3Model()
     sampleInput = torch.randn(1, 3, 224, 224)
 
     exportBrevitas(quantizedModel, sampleInput, debug=True)

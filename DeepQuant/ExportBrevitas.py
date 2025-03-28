@@ -95,12 +95,12 @@ def exportBrevitas(
             exampleInput
         )  # Compute original model output on example input for validation
 
-    export_onnx_qcdq(  # Export original model to ONNX format with QCDQ (Quant-Cast-DeQuant) nodes
-        model,  # Model to export
-        args=exampleInput,  # Example input for tracing
-        export_path=EXPORT_FOLDER / "1_model_qcdq_original.onnx",
-        opset_version=13,
-    )
+    # export_onnx_qcdq(  # Export original model to ONNX format with QCDQ (Quant-Cast-DeQuant) nodes
+    #     model,  # Model to export
+    #     args=exampleInput,  # Example input for tracing
+    #     export_path=EXPORT_FOLDER / "1_model_qcdq_original.onnx",
+    #     opset_version=13,
+    # )
 
     ###############################################################################
     # 2. Injection of New Modules
@@ -151,12 +151,12 @@ def exportBrevitas(
         print("\n=== 2. Network after the Injection of New Modules ===\n")
         printer.print_tabular(fxModel)
 
-    export_onnx_qcdq(  # Export transformed model to ONNX
-        fxModel,  # Transformed model
-        args=exampleInput,
-        export_path=EXPORT_FOLDER / "2_model_qcdq_transformed.onnx",
-        opset_version=13,
-    )
+    # export_onnx_qcdq(  # Export transformed model to ONNX
+    #     fxModel,  # Transformed model
+    #     args=exampleInput,
+    #     export_path=EXPORT_FOLDER / "2_model_qcdq_transformed.onnx",
+    #     opset_version=13,
+    # )
 
     ###############################################################################
     # 3. Extraction of Parameters & Split of Quant Nodes
@@ -273,15 +273,6 @@ def exportBrevitas(
         raise RuntimeError(  # Raise error if inconsistent
             f"{RED} ✗ Modification of Dequant Nodes changed the output significantly{ENDC}"
         )
-
-    # try:
-    #     tracer = NodeTracer(debug=True)
-    #     tracer.trace(fx_model_unified, example_input)
-    #     if debug:
-    #         print(f"{BLUE} ✓ Tracing completed{ENDC}")
-    # except Exception as e:
-    #     print(f"{RED} ✗ Tracing failed: {str(e)}{ENDC}")
-    #     print("This doesn't affect the validity of the exported model")
 
     import numpy as np
     import onnxruntime as ort

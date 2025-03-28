@@ -7,7 +7,6 @@
 
 import warnings
 
-# Suppress all warnings at the very beginning
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=UserWarning, message=".*has_cuda.*")
 warnings.filterwarnings("ignore", category=UserWarning, message=".*has_cudnn.*")
@@ -40,7 +39,7 @@ from brevitas.quant import (
 from DeepQuant.ExportBrevitas import exportBrevitas
 
 
-class SimpleFCModel(nn.Module):
+class SimpleFCNN(nn.Module):
     """Simple fully connected model for MNIST classification."""
 
     def __init__(self) -> None:
@@ -131,7 +130,7 @@ EXPORT_FOLDER = Path().cwd() / "Tests"
 MODEL_PATH = EXPORT_FOLDER / "Models"
 DATA_PATH = EXPORT_FOLDER / "Data"
 
-def deepQuantTestMnistQuantExport() -> None:
+def deepQuantTestSimpleFCNN() -> None:
     
     EXPORT_FOLDER.mkdir(parents=True, exist_ok=True)
     MODEL_PATH.mkdir(parents=True, exist_ok=True)
@@ -157,11 +156,9 @@ def deepQuantTestMnistQuantExport() -> None:
     )
 
     # Train or load model
-    m = SimpleFCModel()
-    m = trainModel(m, trainLoader, testLoader, MODEL_PATH / "mnist_model.pth")
+    m = SimpleFCNN()
+    model = trainModel(m, trainLoader, testLoader, MODEL_PATH / "mnist_model.pth")
 
-    import copy
-    model = copy.deepcopy(m)
     # Prepare for quantization
     model = preprocess_for_quantize(model)
 
@@ -213,7 +210,7 @@ def deepQuantTestMnistQuantExport() -> None:
 
     # Quantize and calibrate
     modelQuant = quantize(
-        copy.deepcopy(model),
+        model,
         compute_layer_map=computeLayerMap,
         quant_act_map=quantActMap,
         quant_identity_map=quantIdentityMap,

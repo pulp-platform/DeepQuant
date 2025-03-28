@@ -5,6 +5,7 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 
+import pytest
 import torch
 import torch.nn as nn
 import brevitas.nn as qnn
@@ -19,7 +20,7 @@ from brevitas.quant.scaled_int import (
 )
 
 
-class SimpleQuantMHA(nn.Module):
+class QuantMHSANet(nn.Module):
 
     def __init__(self, embed_dim: int, num_heads: int) -> None:
         """
@@ -65,11 +66,12 @@ class SimpleQuantMHA(nn.Module):
         return out
 
 
-def deepQuantTestSimpleQuantMHA() -> None:
+@pytest.mark.SingleLayerTests
+def deepQuantTestMHSA() -> None:
 
     torch.manual_seed(42)
 
-    model = SimpleQuantMHA(embed_dim=16, num_heads=4).eval()
+    model = QuantMHSANet(embed_dim=16, num_heads=4).eval()
     sampleInput = torch.randn(10, 2, 16)
 
     exportBrevitas(model, sampleInput, debug=True)

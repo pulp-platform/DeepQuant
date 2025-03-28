@@ -39,7 +39,12 @@ dependencies = [
 packages = ["DeepQuant"]
 
 [tool.pytest.ini_options]
+python_files = ["Tests/*.py"]
 python_functions = ["deepQuantTest*"]
+markers = [
+    "SingleLayerTests: Tests for individual layers",
+    "ModelTests: Tests for full models",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::UserWarning"
