@@ -21,3 +21,11 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+*.gz
+*-ubyte
+*.pth
+*.onnx
+*.npz
+onnx/*
+Dataset/*
