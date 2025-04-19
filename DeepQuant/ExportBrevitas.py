@@ -40,13 +40,8 @@ from brevitas.fx import brevitas_symbolic_trace  # Brevitas-specific symbolic tr
 from DeepQuant.Utils.GraphPrinter import (
     GraphModulePrinter,
 )  # Custom Graph Printer
-from DeepQuant.Utils.FxInterpreter import NodeTracer
-
-
-# ANSI color codes for improved debug output readability
-BLUE = "\033[94m"
-RED = "\033[31m"
-ENDC = "\033[0m"
+from DeepQuant.Utils.TensorRecorder import TensorRecorder
+from DeepQuant.Utils.ConsoleColor import ConsoleColor as cc
 
 
 def exportBrevitas(
@@ -74,6 +69,7 @@ def exportBrevitas(
         EXPORT_FOLDER.mkdir(parents=True, exist_ok=True)
 
     printer = GraphModulePrinter()
+    tensor_recorder = TensorRecorder(debug=debug)
 
     ###############################################################################
     # 1. Original Network
@@ -139,16 +135,23 @@ def exportBrevitas(
         outputFxModel, outputModel, atol=1e-5
     ):  # Check numerical equivalence within tolerance
         if debug:
-            print(f"{BLUE} ✓ Injection of New Modules: output is consistent{ENDC}")
+            print(cc.wrap(" ✓ Injection of New Modules: output is consistent", cc.blue))
     else:
         raise RuntimeError(  # Raise error if outputs differ significantly
-            f"{RED} ✗ Injection of New Modules changed the output significantly{ENDC}"
+            cc.wrap(
+                " ✗ Injection of New Modules changed the output significantly", cc.red
+            )
         )
 
     if debug:
-        print(f"{BLUE} ✓ All transformations completed successfully!{ENDC}")
+        print(cc.wrap(" ✓ All transformations completed successfully!", cc.blue))
+
     if debug:
-        print("\n=== 2. Network after the Injection of New Modules ===\n")
+        print(
+            cc.wrap(
+                "\n=== 2. Network after the Injection of New Modules ===\n", cc.blue
+            )
+        )
         printer.print_tabular(fxModel)
 
     # export_onnx_qcdq(  # Export transformed model to ONNX
@@ -178,22 +181,54 @@ def exportBrevitas(
     )  # Transform quant nodes into quant-dequant pairs
     splitFxModel.recompile()  # Recompile to update forward method with new nodes
 
+    if debug:
+        # Register hooks to record tensors from the split model (before dequant modification)
+        tensor_recorder.register_forward_hooks(
+            splitFxModel,
+            node_types=[
+                "wrappedInnerForwardImpl",
+                "dequant",
+                "unified_dequant",
+                "linear",
+                "conv",
+                "quant",
+                "act",
+                "bias_quant",
+                "act_quant",
+                "relu",
+            ],
+        )
+
     with torch.no_grad():
         outputFxModelSplitQuant = splitFxModel(
             exampleInput
         )  # Compute output after node splitting
 
-    # print("Output Original: ", output_model)
-    # print("Output Split:    ", output_fx_model_split_quant)
+    if debug:
+        # Save the tensors as reference for later comparison
+        tensor_recorder.set_reference_tensors()
+
+        # Register mappings from wrappedInnerForwardImpl nodes to expected unified_dequant nodes
+        for node in splitFxModel.graph.nodes:
+            if node.op == "call_module" and "wrappedInnerForwardImpl" in node.target:
+                # For each wrappedInnerForwardImpl node, derive the expected unified_dequant name
+                base_name = node.target.replace(".wrappedInnerForwardImpl", "")
+                unified_dequant_name = f"{base_name}_unified_dequant"
+                unified_dequant_name = unified_dequant_name.replace(".", "_")
+
+                # Register the mapping
+                tensor_recorder.record_node_mapping(node.target, unified_dequant_name)
+                if debug:
+                    print(f"Registered mapping: {node.target} → {unified_dequant_name}")
 
     if torch.allclose(
         outputModel, outputFxModelSplitQuant, atol=1e-5
     ):  # Verify numerical consistency
         if debug:
-            print(f"{BLUE} ✓ Split of Quant Nodes: output is consistent{ENDC}")
+            print(cc.wrap(" ✓ Split of Quant Nodes: output is consistent", cc.blue))
     else:
         raise RuntimeError(  # Raise error if inconsistent
-            f"{RED} ✗ Split of Quant Nodes changed the output significantly{ENDC}"
+            cc.wrap(" ✗ Split of Quant Nodes changed the output significantly", cc.red)
         )
 
     if debug:
@@ -210,8 +245,6 @@ def exportBrevitas(
         do_constant_folding=False,
     )
 
-    # return split_fx_model
-
     ###############################################################################
     # 4. Modification of Dequant Nodes (shift them down)
     ###############################################################################
@@ -220,35 +253,42 @@ def exportBrevitas(
     fxModelUnified = unifyLinearDequants(splitFxModel, debug=debug)
     fxModelUnified.recompile()  # Recompile to update forward method with new node arrangement
 
+    if debug:
+        tensor_recorder.register_forward_hooks(
+            fxModelUnified,
+            node_types=[
+                "wrappedInnerForwardImpl",
+                "dequant",
+                "unified_dequant",
+                "linear",
+                "conv",
+                "quant",
+                "act",
+                "bias_quant",
+                "act_quant",
+                "relu",
+            ],
+        )
+
     # Compute output after dequant node unification
     with torch.no_grad():
         outputFxModelDequantModified = fxModelUnified(
             exampleInput
         )  # Output after dequant modification
 
-    print("Output Original:         ", outputModel)
-    print("Output Dequant Modified: ", outputFxModelDequantModified)
+    if debug:
+        # Use the integrated comparison that automatically handles wrappedInnerForwardImpl -> unified_dequant
+        print("\n=== Tensor Comparison Before/After Dequant Unification ===")
+        results = tensor_recorder.compare_tensors()
+        tensor_recorder.print_comparison_results(results)
+
+        # Clean up hooks
+        tensor_recorder.remove_hooks()
 
     if debug:
         print("\n=== 4. Network after the Modification of Dequant Nodes ===\n")
         printer.print_tabular(fxModelUnified)
         print()
-
-    # # Verify numerical consistency after dequant modification
-    # if torch.allclose(
-    #     output_model, output_fx_model_dequant_modified, atol=1e-5
-    # ):  # Verify numerical consistency
-    #     if debug:
-    #         print(f"{BLUE} ✓ Modification of Dequant Nodes: output is consistent{ENDC}")
-    # else:
-    #     raise RuntimeError(  # Raise error if inconsistent
-    #         f"{RED} ✗ Modification of Dequant Nodes changed the output significantly{ENDC}"
-    #     )
-
-    # if debug:
-    #     print("\n=== 4. Network after the Modification of Dequant Nodes ===\n")
-    #     printer.print_tabular(fx_model_unified)
-    #     print()
 
     onnxFile: str = EXPORT_FOLDER / "4_model_dequant_moved.onnx"
     torch.onnx.export(
@@ -268,37 +308,38 @@ def exportBrevitas(
         outputModel, outputFxModelDequantModified, atol=1e-5
     ):  # Verify numerical consistency
         if debug:
-            print(f"{BLUE} ✓ Modification of Dequant Nodes: output is consistent{ENDC}")
+            print(
+                cc.wrap(
+                    " ✓ Modification of Dequant Nodes: output is consistent", cc.blue
+                )
+            )
     else:
         raise RuntimeError(  # Raise error if inconsistent
-            f"{RED} ✗ Modification of Dequant Nodes changed the output significantly{ENDC}"
+            cc.wrap(
+                " ✗ Modification of Dequant Nodes changed the output significantly",
+                cc.red,
+            )
         )
 
     import numpy as np
     import onnxruntime as ort
     import onnx
 
-    # Step 2: Load the model and run shape inference
-    # (All tensors in ONNX graph should have explicit shape information)
     onnxModel = onnx.load(onnxFile)
     inferredModel = onnx.shape_inference.infer_shapes(onnxModel)
 
-    # Step 3: Save the model with inferred shapes
     onnx.save(inferredModel, onnxFile)
 
     inputFile: str = EXPORT_FOLDER / "inputs.npz"
     np.savez(inputFile, input=exampleInput.cpu())
-    print("Input npz: ", exampleInput)
     print(f"Input data saved to {inputFile} ✓")
 
-    # onnxruntime to run the exported model
     ortSession: ort.InferenceSession = ort.InferenceSession(onnxFile)
     ortInputs: dict = {"input": exampleInput.cpu().numpy()}
     ortOutput: np.ndarray = ortSession.run(None, ortInputs)[0]
 
     outputFile: str = EXPORT_FOLDER / "outputs.npz"
     np.savez(outputFile, output=ortOutput)
-    print("Output npz: ", ortOutput)
     print(f"Output data saved to {outputFile} ✓")
 
-    return fxModelUnified  # Return the final optimized FX GraphModule
+    return fxModelUnified

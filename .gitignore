@@ -25,6 +25,7 @@ dist/
 *.gz
 *-ubyte
 *.pth
+*.pt
 *.onnx
 *.npz
 onnx/*

@@ -128,14 +128,41 @@ def split_quant_nodes(
                 param_info,
             )
 
-            # Re-route all users of the original node.
+            users_updated = False
             for user_node in list(node.users.keys()):
-                new_args = []
-                for arg in user_node.args:
-                    new_args.append(dequant_node if arg is node else arg)
-                user_node.args = tuple(new_args)
+                if (
+                    user_node.op == "call_function"
+                    and hasattr(user_node.target, "__name__")
+                    and user_node.target.__name__ == "cat"
+                ):
+                    # FBRANCASI: This is a concatenation operation - Special Handling
+                    new_cat_args = list(user_node.args)
+                    if len(new_cat_args) >= 1 and isinstance(new_cat_args[0], list):
+                        tensors_list = new_cat_args[0]
+                        updated_tensors = []
+                        for tensor in tensors_list:
+                            if tensor is node:
+                                updated_tensors.append(dequant_node)
+                            else:
+                                updated_tensors.append(tensor)
+                        new_cat_args[0] = updated_tensors
+                        user_node.args = tuple(new_cat_args)
+                        users_updated = True
+                    else:
+                        if debug:
+                            print(
+                                f"Warning: Unexpected cat args structure: {new_cat_args}{ENDC}"
+                            )
+                else:
+                    # FBRANCASI: Standard node reference replacement
+                    new_args = []
+                    for arg in user_node.args:
+                        new_args.append(dequant_node if arg is node else arg)
+                    user_node.args = tuple(new_args)
+                    users_updated = True
 
-            nodes_to_erase.append(node)
+            if users_updated:
+                nodes_to_erase.append(node)
 
     for erase_node in nodes_to_erase:
         graph.erase_node(erase_node)

@@ -4,13 +4,9 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-
 import pytest
 import torch
 import torch.nn as nn
-import torchvision.models as models
-from brevitas.graph.quantize import preprocess_for_quantize
-from brevitas.graph.per_input import AdaptiveAvgPoolToAvgPool
 import brevitas.nn as qnn
 from brevitas.quant import (
     Int8ActPerTensorFloat,
@@ -18,36 +14,22 @@ from brevitas.quant import (
     Int32Bias,
     Uint8ActPerTensorFloat,
 )
-from brevitas.graph.quantize import quantize
+from brevitas.graph.quantize import quantize, preprocess_for_quantize
 
 from DeepQuant.ExportBrevitas import exportBrevitas
 
 
-def prepareResnet18Model() -> nn.Module:
-    """
-    Prepare a quantized ResNet18 model for testing.
-    Steps:
-      1) Load the torchvision ResNet18.
-      2) Convert it to eval mode.
-      3) Preprocess and adapt average pooling.
-      4) Quantize it using Brevitas.
+def prepareYOLOv5Backbone() -> nn.Module:
+    from ultralytics import YOLO
 
-    Returns:
-        A quantized ResNet18 model ready for export tests.
-    """
-    baseModel = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+    model = YOLO("Models/yolov5n.pt")
+    pytorch_model = model.model
 
-    baseModel = nn.Sequential(
-        baseModel.conv1,
-        baseModel.bn1,
-        baseModel.relu,
-        baseModel.maxpool,
-        baseModel.layer1[0],
-    )
+    backbone = pytorch_model.model[
+        0:4
+    ]  # FBRANCASI: Just first few layers for simplicity
 
-    baseModel = baseModel.eval()
-
-    computeLayerMap = {
+    compute_layer_map = {
         nn.Conv2d: (
             qnn.QuantConv2d,
             {
@@ -58,7 +40,7 @@ def prepareResnet18Model() -> nn.Module:
                 "bias": True,
                 "return_quant_tensor": True,
                 "output_bit_width": 8,
-                "weight_bit_width": 8,
+                "weight_bit_width": 4,
             },
         ),
         nn.Linear: (
@@ -71,12 +53,20 @@ def prepareResnet18Model() -> nn.Module:
                 "bias": True,
                 "return_quant_tensor": True,
                 "output_bit_width": 8,
-                "weight_bit_width": 8,
+                "weight_bit_width": 4,
             },
         ),
     }
 
-    quantActMap = {
+    quant_act_map = {
+        nn.SiLU: (
+            qnn.QuantReLU,  # FBRANCASI: As a substitute for now
+            {
+                "act_quant": Uint8ActPerTensorFloat,
+                "return_quant_tensor": True,
+                "bit_width": 8,
+            },
+        ),
         nn.ReLU: (
             qnn.QuantReLU,
             {
@@ -85,9 +75,17 @@ def prepareResnet18Model() -> nn.Module:
                 "bit_width": 8,
             },
         ),
+        nn.LeakyReLU: (
+            qnn.QuantReLU,  # FBRANCASI: As a substitute for now
+            {
+                "act_quant": Uint8ActPerTensorFloat,
+                "return_quant_tensor": True,
+                "bit_width": 8,
+            },
+        ),
     }
 
-    quantIdentityMap = {
+    quant_identity_map = {
         "signed": (
             qnn.QuantIdentity,
             {
@@ -106,27 +104,28 @@ def prepareResnet18Model() -> nn.Module:
         ),
     }
 
-    baseModel = preprocess_for_quantize(
-        baseModel, equalize_iters=20, equalize_scale_computation="range"
-    )
-    baseModel = AdaptiveAvgPoolToAvgPool().apply(baseModel, torch.ones(1, 3, 224, 224))
-
-    quantizedResnet = quantize(
-        graph_model=baseModel,
-        compute_layer_map=computeLayerMap,
-        quant_act_map=quantActMap,
-        quant_identity_map=quantIdentityMap,
+    backbone = preprocess_for_quantize(
+        backbone, equalize_iters=10, equalize_scale_computation="range"
     )
 
-    return quantizedResnet
+    quantized_model = quantize(
+        graph_model=backbone,
+        compute_layer_map=compute_layer_map,
+        quant_act_map=quant_act_map,
+        quant_identity_map=quant_identity_map,
+    )
+
+    return quantized_model
 
 
 @pytest.mark.ModelTests
-def deepQuantTestResnet18() -> None:
+def deepQuantTestYOLOv5():
 
     torch.manual_seed(42)
 
-    quantizedModel = prepareResnet18Model()
-    sampleInput = torch.randn(1, 3, 224, 224)
+    quantizedModel = prepareYOLOv5Backbone()
+    sample_input = torch.randn(1, 3, 128, 128)
 
-    exportBrevitas(quantizedModel, sampleInput, debug=True)
+    quantizedModel.eval()
+
+    exportBrevitas(quantizedModel, sample_input, debug=True)
