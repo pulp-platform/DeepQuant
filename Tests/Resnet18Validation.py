@@ -154,9 +154,9 @@ def main():
     dataset.class_to_idx = new_class_to_idx
 
     # FBRANCASI: Optional, reduce number of example for faster validation
-    DATASET_LIMIT = 1000
-    dataset = Subset(dataset, list(range(DATASET_LIMIT)))
-    print(f"Validation dataset size set to {len(dataset)} images.")
+    # DATASET_LIMIT = 1000
+    # dataset = Subset(dataset, list(range(DATASET_LIMIT)))
+    # print(f"Validation dataset size set to {len(dataset)} images.")
 
     CALIB_BATCH_SIZE = 32
     CALIB_SIZE = 256
@@ -200,10 +200,10 @@ def main():
         total = 0
         with torch.no_grad():
             for inputs, targets in tqdm(data_loader, desc=f"Evaluating {name}"):
-                is_exported = "Exported" in name
+                is_TQ = "TQ" in name
 
-                if is_exported:
-                    # Process different batches for the exported model
+                if is_TQ:
+                    # Process different batches for the TQ model
                     for i in range(inputs.size(0)):
                         single_input = inputs[i : i + 1].to(eval_device)
                         single_output = model(single_input)
@@ -255,7 +255,7 @@ def main():
                 model(inputs)
         print("Calibration completed.")
 
-    def prepare_quantized_resnet18():
+    def prepare_FQ_resnet18():
         base_model = torchvision.models.resnet18(
             weights=torchvision.models.ResNet18_Weights.IMAGENET1K_V1
         )
@@ -265,6 +265,7 @@ def main():
             nn.Conv2d: (
                 qnn.QuantConv2d,
                 {
+                    "input_quant": Int8ActPerTensorFloat,
                     "weight_quant": Int8WeightPerTensorFloat,
                     "output_quant": Int8ActPerTensorFloat,
                     "bias_quant": Int32Bias,
@@ -277,6 +278,7 @@ def main():
             nn.Linear: (
                 qnn.QuantLinear,
                 {
+                    "input_quant": Int8ActPerTensorFloat,
                     "weight_quant": Int8WeightPerTensorFloat,
                     "output_quant": Int8ActPerTensorFloat,
                     "bias_quant": Int32Bias,
@@ -329,60 +331,58 @@ def main():
         base_model = AdaptiveAvgPoolToAvgPool().apply(base_model, dummy_input)
 
         print("Quantizing model...")
-        quantized_model = quantize(
+        FQ_model = quantize(
             graph_model=base_model,
             compute_layer_map=compute_layer_map,
             quant_act_map=quant_act_map,
             quant_identity_map=quant_identity_map,
         )
 
-        return quantized_model
+        return FQ_model
 
     print("Preparing and quantizing ResNet18...")
-    quantized_model = prepare_quantized_resnet18()
+    FQ_model = prepare_FQ_resnet18()
 
-    print("Calibrating quantized model...")
-    calibrate_model(quantized_model, calib_loader)
+    print("Calibrating FQ model...")
+    calibrate_model(FQ_model, calib_loader)
 
-    print("Evaluating quantized model...")
+    print("Evaluating FQ model...")
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # FBRANCASI: I'm on mac, mps doesn't work with brevitas
-    quantized_top1, quantized_top5 = evaluate_model(
-        quantized_model, val_loader, device, "Quantized ResNet18"
-    )
+    FQ_top1, FQ_top5 = evaluate_model(FQ_model, val_loader, device, "FQ ResNet18")
 
-    print("Exporting quantized model with exportBrevitas...")
-    sample_input = torch.randn(1, 3, 224, 224).to("cpu")
+    print("Exporting FQ model with exportBrevitas...")
+    sample_input_img = None
+    sample_target = None
+    for inputs, targets in val_loader:
+        sample_input_img = inputs[17]
+        sample_target = targets[17].item()
+        break
+    sample_input_img = sample_input_img.unsqueeze(0)
+
+    # sample_input_img = torch.randn(1, 3, 224, 224).to("cpu")
     # FBRANCASI: If the model doesn't pass the validations in exportBrevitas, but
     # you want still to validate, remove the "raise RuntimeError" in exportBrevitas
-    exported_model = exportBrevitas(quantized_model, sample_input, debug=False)
+    TQ_model = exportBrevitas(FQ_model, sample_input_img, debug=True)
 
-    num_parameters = sum(p.numel() for p in exported_model.parameters())
+    num_parameters = sum(p.numel() for p in TQ_model.parameters())
     print(f"Number of parameters: {num_parameters:,}")
 
-    with torch.no_grad():
-        test_batch = torch.randn(4, 3, 224, 224).to("cpu")
-        batch_output = exported_model(test_batch)
-        print(f"  Output format: {batch_output.shape}")
-        print(f"  Output type: {batch_output.dtype}")
-
-    print("Evaluating exported quantized model...")
-    exported_top1, exported_top5 = evaluate_model(
-        exported_model, val_loader, device, "Exported ResNet18"
-    )
+    print("Evaluating TQ model...")
+    TQ_top1, TQ_top5 = evaluate_model(TQ_model, val_loader, device, "TQ ResNet18")
 
     print("\nComparison Summary:")
     print(f"{'Model':<25} {'Top-1 Accuracy':<25} {'Top-5 Accuracy':<25}")
     print("-" * 75)
     print(f"{'Original ResNet18':<25} {original_top1:<24.2f} {original_top5:<24.2f}")
-    print(f"{'Quantized ResNet18':<25} {quantized_top1:<24.2f} {quantized_top5:<24.2f}")
-    print(f"{'Exported ResNet18':<25} {exported_top1:<24.2f} {exported_top5:<24.2f}")
+    print(f"{'FQ ResNet18':<25} {FQ_top1:<24.2f} {FQ_top5:<24.2f}")
+    print(f"{'TQ ResNet18':<25} {TQ_top1:<24.2f} {TQ_top5:<24.2f}")
     print(
-        f"{'Quantized Drop':<25} {original_top1 - quantized_top1:<24.2f} {original_top5 - quantized_top5:<24.2f}"
+        f"{'FQ Drop':<25} {original_top1 - FQ_top1:<24.2f} {original_top5 - FQ_top5:<24.2f}"
     )
     print(
-        f"{'Exported Drop':<25} {original_top1 - exported_top1:<24.2f} {original_top5 - exported_top5:<24.2f}"
+        f"{'TQ Drop':<25} {original_top1 - TQ_top1:<24.2f} {original_top5 - TQ_top5:<24.2f}"
     )
 
     # --------------------------------------------------
@@ -397,7 +397,7 @@ def main():
         break
 
     print(f"\nGround truth class of the sample image: {sample_target}")
-    compare_model_outputs(quantized_model, exported_model, sample_input_img, device)
+    compare_model_outputs(FQ_model, TQ_model, sample_input_img, device)
 
 
 if __name__ == "__main__":
