@@ -21,11 +21,11 @@ from .Utils.CustomTracer import (
     customBrevitasTrace,
 )  # Custom FX tracer for Brevitas modules
 from DeepQuant.QuantManipulation.ParameterExtractor import (
-    extract_brevitas_proxy_params,  # Extracts quantization parameters from Brevitas proxies
-    print_quant_params,  # Displays quantization parameters in a readable format
+    extractBrevitasProxyParams,  # Extracts quantization parameters from Brevitas proxies
+    printQuantParams,  # Displays quantization parameters in a readable format
 )
 from DeepQuant.QuantManipulation.QuantNodesDivider import (
-    split_quant_nodes,
+    splitQuantNodes,
 )  # Splits quantization nodes into Quant/Dequant pairs
 from brevitas.export.inference import (
     quant_inference_mode,
@@ -80,7 +80,7 @@ def exportQuantModel(
     )  # Symbolically trace the original model using Brevitas
     if debug:
         print("\n\n=== 1. Original Network ===\n")
-        printer.print_tabular(model)
+        printer.printTabular(model)
         print()
 
     with (
@@ -154,7 +154,7 @@ def exportQuantModel(
                 "\n=== 2. Network after the Injection of New Modules ===\n", cc.blue
             )
         )
-        printer.print_tabular(fxModel)
+        printer.printTabular(fxModel)
 
     # export_onnx_qcdq(  # Export transformed model to ONNX
     #     fxModel,  # Transformed model
@@ -163,32 +163,31 @@ def exportQuantModel(
     #     opset_version=13,
     # )
 
-
     ###############################################################################
     # 3. Extraction of Parameters & Split of Quant Nodes
     ###############################################################################
 
     # Extract quantization parameters from the network's proxies
-    proxyParams = extract_brevitas_proxy_params(
+    proxyParams = extractBrevitasProxyParams(
         fxModel
     )  # Get scale, zero_point, bit_width for each quant node
 
     if debug:
-        print_quant_params(
+        printQuantParams(
             proxyParams
         )  # Display extracted parameters in a readable format
 
     # Split quantization nodes into separate Quant and Dequant nodes
-    splitFxModel = split_quant_nodes(
+    splitFxModel = splitQuantNodes(
         fxModel, proxyParams, debug
     )  # Transform quant nodes into quant-dequant pairs
     splitFxModel.recompile()  # Recompile to update forward method with new nodes
 
     if debug:
         # Register hooks to record tensors from the split model (before dequant modification)
-        tensor_recorder.register_forward_hooks(
+        tensor_recorder.registerForwardHooks(
             splitFxModel,
-            node_types=[
+            nodeTypes=[
                 "wrappedInnerForwardImpl",
                 "dequant",
                 "unified_dequant",
@@ -209,7 +208,7 @@ def exportQuantModel(
 
     if debug:
         # Save the tensors as reference for later comparison
-        tensor_recorder.set_reference_tensors()
+        tensor_recorder.setReferenceTensors()
 
         # Register mappings from wrappedInnerForwardImpl nodes to expected unified_dequant nodes
         for node in splitFxModel.graph.nodes:
@@ -220,7 +219,7 @@ def exportQuantModel(
                 unified_dequant_name = unified_dequant_name.replace(".", "_")
 
                 # Register the mapping
-                tensor_recorder.record_node_mapping(node.target, unified_dequant_name)
+                tensor_recorder.recordNodeMapping(node.target, unified_dequant_name)
                 if debug:
                     print(f"Registered mapping: {node.target} → {unified_dequant_name}")
 
@@ -236,7 +235,7 @@ def exportQuantModel(
 
     if debug:
         print("\n=== 3. Network after the Split of Quant Nodes ===\n")
-        printer.print_tabular(splitFxModel)
+        printer.printTabular(splitFxModel)
         print()
 
     torch.onnx.export(
@@ -257,9 +256,9 @@ def exportQuantModel(
     fxModelUnified.recompile()  # Recompile to update forward method with new node arrangement
 
     if debug:
-        tensor_recorder.register_forward_hooks(
+        tensor_recorder.registerForwardHooks(
             fxModelUnified,
-            node_types=[
+            nodeTypes=[
                 "wrappedInnerForwardImpl",
                 "dequant",
                 "unified_dequant",
@@ -282,15 +281,15 @@ def exportQuantModel(
     if debug:
         # Use the integrated comparison that automatically handles wrappedInnerForwardImpl -> unified_dequant
         print("\n=== Tensor Comparison Before/After Dequant Unification ===")
-        results = tensor_recorder.compare_tensors()
-        tensor_recorder.print_comparison_results(results)
+        results = tensor_recorder.compareTensors()
+        tensor_recorder.printComparisonResults(results)
 
         # Clean up hooks
-        tensor_recorder.remove_hooks()
+        tensor_recorder.removeHooks()
 
     if debug:
         print("\n=== 4. Network after the Modification of Dequant Nodes ===\n")
-        printer.print_tabular(fxModelUnified)
+        printer.printTabular(fxModelUnified)
         print()
 
     onnxFile: str = EXPORT_FOLDER / "4_model_dequant_moved.onnx"

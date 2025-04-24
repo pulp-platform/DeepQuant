@@ -15,94 +15,96 @@ from brevitas.proxy.parameter_quant import (
 from colorama import Fore, Style
 
 
-def safe_get_scale(quant_obj: Any) -> Any:
-    if quant_obj is None:
+def safeGetScale(quantObj: Any) -> Any:
+    """Safely extract scale parameter from quantization object."""
+    if quantObj is None:
         return None
-    maybe_scale = quant_obj.scale() if callable(quant_obj.scale) else quant_obj.scale
-    if maybe_scale is None:
+    maybeScale = quantObj.scale() if callable(quantObj.scale) else quantObj.scale
+    if maybeScale is None:
         return None
-    if isinstance(maybe_scale, torch.Tensor):
-        return maybe_scale.item()
-    elif isinstance(maybe_scale, float):
-        return maybe_scale
+    if isinstance(maybeScale, torch.Tensor):
+        return maybeScale.item()
+    elif isinstance(maybeScale, float):
+        return maybeScale
     try:
-        return float(maybe_scale)
+        return float(maybeScale)
     except Exception:
         return None
 
 
-def safe_get_zero_point(quant_obj: Any) -> Any:
-    if quant_obj is None:
+def safeGetZeroPoint(quantObj: Any) -> Any:
+    """Safely extract zero point parameter from quantization object."""
+    if quantObj is None:
         return None
-    maybe_zp = (
-        quant_obj.zero_point()
-        if callable(quant_obj.zero_point)
-        else quant_obj.zero_point
+    maybeZp = (
+        quantObj.zero_point()
+        if callable(quantObj.zero_point)
+        else quantObj.zero_point
     )
-    if maybe_zp is None:
+    if maybeZp is None:
         return None
-    if isinstance(maybe_zp, torch.Tensor):
-        return maybe_zp.item()
-    elif isinstance(maybe_zp, float):
-        return maybe_zp
+    if isinstance(maybeZp, torch.Tensor):
+        return maybeZp.item()
+    elif isinstance(maybeZp, float):
+        return maybeZp
     try:
-        return float(maybe_zp)
+        return float(maybeZp)
     except Exception:
         return None
 
 
-def safe_get_is_signed(quant_obj: Any) -> bool:
-    if hasattr(quant_obj, "is_signed"):
-        return getattr(quant_obj, "is_signed")
-    if hasattr(quant_obj, "min_val"):
+def safeGetIsSigned(quantObj: Any) -> bool:
+    """Safely determine if quantization is signed."""
+    if hasattr(quantObj, "is_signed"):
+        return getattr(quantObj, "is_signed")
+    if hasattr(quantObj, "min_val"):
         try:
-            return quant_obj.min_val < 0
+            return quantObj.min_val < 0
         except Exception:
             pass
-    zp = safe_get_zero_point(quant_obj)
+    zp = safeGetZeroPoint(quantObj)
     if zp is not None:
         # If zero_point is near zero, assume unsigned quantization.
         return not (abs(zp) < 1e-5)
     return True
 
 
-def extract_brevitas_proxy_params(model: nn.Module) -> Dict[str, Dict[str, Any]]:
-    """
-    Recursively scan the model to extract the scale, zero_point, bit_width, and deduced signedness.
-    """
-    params_dict: Dict[str, Dict[str, Any]] = {}
+def extractBrevitasProxyParams(model: nn.Module) -> Dict[str, Dict[str, Any]]:
+    """Extract quantization parameters from Brevitas proxy modules."""
+    paramsDict: Dict[str, Dict[str, Any]] = {}
 
-    def recurse_modules(parent_mod: nn.Module, prefix: str = "") -> None:
-        for child_name, child_mod in parent_mod.named_children():
-            full_name = f"{prefix}.{child_name}" if prefix else child_name
+    def recurseModules(parentMod: nn.Module, prefix: str = "") -> None:
+        for childName, childMod in parentMod.named_children():
+            fullName = f"{prefix}.{childName}" if prefix else childName
             if isinstance(
-                child_mod,
+                childMod,
                 (
                     ActQuantProxyFromInjector,
                     WeightQuantProxyFromInjector,
                     BiasQuantProxyFromInjector,
                 ),
             ):
-                scl = safe_get_scale(child_mod)
-                zp = safe_get_zero_point(child_mod)
-                bw = child_mod.bit_width()
-                is_signed = safe_get_is_signed(child_mod)
-                params_dict[full_name] = {
+                scl = safeGetScale(childMod)
+                zp = safeGetZeroPoint(childMod)
+                bw = childMod.bit_width()
+                isSigned = safeGetIsSigned(childMod)
+                paramsDict[fullName] = {
                     "scale": scl,
                     "zero_point": zp,
                     "bit_width": bw,
-                    "is_signed": is_signed,
+                    "is_signed": isSigned,
                 }
-            recurse_modules(child_mod, prefix=full_name)
+            recurseModules(childMod, prefix=fullName)
 
-    recurse_modules(model)
-    return params_dict
+    recurseModules(model)
+    return paramsDict
 
 
-def print_quant_params(params_dict: Dict[str, Dict[str, Any]]) -> None:
+def printQuantParams(paramsDict: Dict[str, Dict[str, Any]]) -> None:
+    """Print extracted quantization parameters in a readable format."""
     print(f"\n{Fore.BLUE}Extracted Parameters from the Network:{Style.RESET_ALL}")
-    for layer_name, quant_values in params_dict.items():
-        print(f"  {Fore.BLUE}{layer_name}:{Style.RESET_ALL}")
-        for param_key, param_val in quant_values.items():
-            print(f"    {param_key}: {param_val}")
+    for layerName, quantValues in paramsDict.items():
+        print(f"  {Fore.BLUE}{layerName}:{Style.RESET_ALL}")
+        for paramKey, paramVal in quantValues.items():
+            print(f"    {paramKey}: {paramVal}")
         print()

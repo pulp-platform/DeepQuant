@@ -5,25 +5,17 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 import torch.fx as fx
-
 from DeepQuant.QuantManipulation.QuantDequantNodes import Dequant
-
-
-BLUE = "\033[94m"
-ENDC = "\033[0m"
-CHECK = " ✓"
-ARROW = " ›"
+from DeepQuant.Utils.ConsoleColor import ConsoleColor as cc
 
 
 def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.GraphModule:
-    """
-    Unify the linear dequant nodes (input, weight, bias) into a single final dequant node.
-    """
+    """Unify the linear dequant nodes (input, weight, bias) into a single final dequant node."""
     graph = fxModel.graph
     allNodes = list(graph.nodes)
 
     if debug:
-        print(f"{BLUE}{ARROW} Starting Modification of Dequant Nodes...{ENDC}")
+        print(cc.info("Starting Modification of Dequant Nodes..."))
 
     for node in allNodes:
         if node.op != "call_module" or "wrappedInnerForwardImpl" not in node.target:
@@ -64,11 +56,11 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
             biasQuantNode.op == "call_module"
             and "bias_quant" in biasQuantNode.target.lower()
         ):
-            new_bq_args = list(biasQuantNode.args)
-            for i, bq_arg in enumerate(new_bq_args):
-                if bq_arg.op == "call_module" and "dequant" in bq_arg.target.lower():
-                    new_bq_args[i] = bq_arg.args[0]
-            biasQuantNode.args = tuple(new_bq_args)
+            newBqArgs = list(biasQuantNode.args)
+            for i, bqArg in enumerate(newBqArgs):
+                if bqArg.op == "call_module" and "dequant" in bqArg.target.lower():
+                    newBqArgs[i] = bqArg.args[0]
+            biasQuantNode.args = tuple(newBqArgs)
         else:
             if debug:
                 print(
@@ -92,10 +84,10 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
         newDequantModName = newDequantModName.replace(".", "_")
 
         unifiedDequantMod = Dequant(
-            original_module=oldBiasDequantMod.original_module,
+            originalModule=oldBiasDequantMod.originalModule,
             scale=oldBiasDequantMod.scale,
-            zero_point=oldBiasDequantMod.zero_point,
-            bit_width=oldBiasDequantMod.bit_width,
+            zeroPoint=oldBiasDequantMod.zeroPoint,
+            bitWidth=oldBiasDequantMod.bitWidth,
         )
 
         fxModel.add_module(newDequantModName, unifiedDequantMod)
@@ -103,8 +95,8 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
         with graph.inserting_after(node):
             newDequantNode = graph.call_module(newDequantModName, args=(node,))
 
-        old_users = list(node.users.keys())
-        for usr in old_users:
+        oldUsers = list(node.users.keys())
+        for usr in oldUsers:
             if usr is not newDequantNode:
                 newArgs = list(usr.args)
                 for i, a in enumerate(newArgs):
@@ -119,7 +111,7 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
         graph.erase_node(biasDequantNode)
 
         if debug:
-            print(f"    {CHECK} Modification done for {node.target}")
+            print(cc.success(f"Modification done for {node.target}"))
 
     graph.lint()
     graph.eliminate_dead_code()
@@ -129,8 +121,6 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
     fxModel.recompile()
 
     if debug:
-        print(
-            f"{BLUE}{ARROW} Modification of Dequant Nodes completed successfully{ENDC}"
-        )
+        print(cc.info("Modification of Dequant Nodes completed successfully"))
 
     return fxModel

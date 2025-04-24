@@ -14,117 +14,129 @@ from DeepQuant.Utils.ConsoleColor import ConsoleColor as cc
 
 
 class TensorRecorder:
+    """Records and compares tensor values during model execution."""
+    
     def __init__(self, debug: bool = False):
         self.debug = debug
         self._hooks: List[torch.utils.hooks.RemovableHandle] = []
         self._current: Dict[str, torch.Tensor] = {}
         self._reference: Optional[Dict[str, torch.Tensor]] = None
-        self._execution_order: List[str] = []
-        self._name_map: Dict[str, str] = {}
+        self._executionOrder: List[str] = []
+        self._nameMap: Dict[str, str] = {}
         self._ignore: Set[str] = set()
 
     def clear(self) -> None:
-        self.remove_hooks()
+        """Clear all recorded data and hooks."""
+        self.removeHooks()
         self._current.clear()
         self._reference = None
-        self._execution_order.clear()
-        self._name_map.clear()
+        self._executionOrder.clear()
+        self._nameMap.clear()
         self._ignore.clear()
 
-    def remove_hooks(self) -> None:
+    def removeHooks(self) -> None:
+        """Remove all registered hooks."""
         for hook in self._hooks:
             hook.remove()
         self._hooks.clear()
 
-    def register_forward_hooks(
-        self, model: fx.GraphModule, node_types: Optional[List[str]] = None
+    def registerForwardHooks(
+        self, model: fx.GraphModule, nodeTypes: Optional[List[str]] = None
     ) -> None:
-        self.remove_hooks()
-        wanted = [w.lower() for w in node_types]
+        """Register forward hooks for specified node types."""
+        self.removeHooks()
+        wanted = [w.lower() for w in nodeTypes] if nodeTypes else []
 
-        def make_hook(name: str):
+        def makeHook(name: str):
             def hook(_, __, output):
                 if isinstance(output, torch.Tensor):
                     self._current[name] = output.detach().clone()
-                    if name not in self._execution_order:
-                        self._execution_order.append(name)
-                    # FBRANCASI: uncomment if you want to print logs
-                    # if self.debug:
-                    #     print(cc.wrap(f"{name}: {tuple(output.shape)}", cc.blue))
-
+                    if name not in self._executionOrder:
+                        self._executionOrder.append(name)
             return hook
 
         for name, module in model.named_modules():
             if name and any(w in name.lower() for w in wanted):
-                self._hooks.append(module.register_forward_hook(make_hook(name)))
-                # FBRANCASI: uncomment if you want to print logs
-                # if self.debug:
-                #     print(cc.wrap(f"hook {name}", cc.blue))
+                self._hooks.append(module.register_forward_hook(makeHook(name)))
 
-    def record_node_mapping(self, reference_name: str, current_name: str) -> None:
-        self._name_map[reference_name] = current_name
+    def recordNodeMapping(self, referenceName: str, currentName: str) -> None:
+        """Record a mapping between reference and current node names."""
+        self._nameMap[referenceName] = currentName
+        if self.debug:
+            print(f"Registered mapping: {referenceName} → {currentName}")
 
-    def set_reference_tensors(self) -> None:
+    def setReferenceTensors(self) -> None:
+        """Save current tensors as reference tensors."""
         self._reference = {k: v.clone() for k, v in self._current.items()}
-        self._reference_order = list(self._execution_order)
+        self._referenceOrder = list(self._executionOrder)
 
-    def compare_tensors(self) -> Dict[str, Dict]:
+    def compareTensors(self) -> Dict[str, Dict]:
+        """Compare current tensors to reference tensors."""
         if self._reference is None:
-            raise RuntimeError("set_reference_tensors has not been called")
+            raise RuntimeError("setReferenceTensors has not been called")
 
         results: Dict[str, Dict] = OrderedDict()
-        for ref_name, ref_tensor in self._reference.items():
-            if ref_name in self._ignore:
+        for refName, refTensor in self._reference.items():
+            if refName in self._ignore:
                 continue
-            cur_name = self._name_map.get(ref_name, ref_name)
-            if cur_name not in self._current:
-                results[ref_name] = {"match": False, "error": f"missing '{cur_name}'"}
+                
+            curName = self._nameMap.get(refName, refName)
+            if curName not in self._current:
+                results[refName] = {"match": False, "error": f"missing '{curName}'"}
                 continue
-            cur_tensor = self._current[cur_name]
-            equal = torch.equal(ref_tensor, cur_tensor)
-            diff_mask = ref_tensor != cur_tensor
-            results[ref_name] = {
+                
+            curTensor = self._current[curName]
+            equal = torch.equal(refTensor, curTensor)
+            diffMask = refTensor != curTensor
+            
+            results[refName] = {
                 "match": equal,
-                "mapped": cur_name != ref_name,
-                "current_name": cur_name,
-                "shape": tuple(ref_tensor.shape),
-                "diff_count": diff_mask.sum().item() if not equal else 0,
-                "diff_mask": diff_mask,
-                "ref_tensor": ref_tensor,
-                "cur_tensor": cur_tensor,
+                "mapped": curName != refName,
+                "current_name": curName,
+                "shape": tuple(refTensor.shape),
+                "diff_count": diffMask.sum().item() if not equal else 0,
+                "diff_mask": diffMask,
+                "ref_tensor": refTensor,
+                "cur_tensor": curTensor,
             }
         return results
 
-    # FBRANCASI: helper to summarise most common absolute differences
-    def _top_differences(
-        self, ref: torch.Tensor, cur: torch.Tensor, diff_mask: torch.Tensor
+    def _topDifferences(
+        self, ref: torch.Tensor, cur: torch.Tensor, diffMask: torch.Tensor
     ) -> List[str]:
-        mask_flat = diff_mask.view(-1).bool()
-        if mask_flat.sum() == 0:
+        """Summarize the most common absolute differences between tensors."""
+        maskFlat = diffMask.view(-1).bool()
+        if maskFlat.sum() == 0:
             return []
-        abs_diff = (ref - cur).abs().view(-1)[mask_flat]
-        unique, counts = torch.unique(abs_diff, return_counts=True)
+            
+        absDiff = (ref - cur).abs().view(-1)[maskFlat]
+        unique, counts = torch.unique(absDiff, return_counts=True)
         order = counts.argsort(descending=True)
+        
         lines: List[str] = []
         for idx in order[:5]:
             delta = unique[idx].item()
             count = counts[idx].item()
-            sample_index = (abs_diff == delta).nonzero(as_tuple=False)[0].item()
-            global_index = mask_flat.nonzero(as_tuple=False)[sample_index].item()
-            before_value = ref.view(-1)[global_index].item()
-            after_value = cur.view(-1)[global_index].item()
+            sampleIndex = (absDiff == delta).nonzero(as_tuple=False)[0].item()
+            globalIndex = maskFlat.nonzero(as_tuple=False)[sampleIndex].item()
+            beforeValue = ref.view(-1)[globalIndex].item()
+            afterValue = cur.view(-1)[globalIndex].item()
+            
             lines.append(
-                f"    · Δ={delta:.32f}  ({count} values) e.g. idx {global_index}: {before_value:.32f} → {after_value:.32f}"
+                f"    · Δ={delta:.6f}  ({count} values) e.g. idx {globalIndex}: "
+                f"{beforeValue:.6f} → {afterValue:.6f}"
             )
         return lines
 
-    def print_comparison_results(self, results: Dict[str, Dict]) -> None:
+    def printComparisonResults(self, results: Dict[str, Dict]) -> None:
+        """Print tensor comparison results in a readable format."""
         if not results:
             print("No comparison data available.")
             return
 
         matches = sum(1 for r in results.values() if r["match"])
         total = len(results)
+        
         print(cc.wrap("===== Tensor comparison =====", cc.blue))
         print(
             f"Compared {total}: "
@@ -132,36 +144,42 @@ class TensorRecorder:
             f"{cc.wrap(str(total - matches) + ' different', cc.red)}\n"
         )
 
-        ordered_names = getattr(self, "_reference_order", list(results.keys()))
-        for name in ordered_names:
+        orderedNames = getattr(self, "_referenceOrder", list(results.keys()))
+        for name in orderedNames:
             if name not in results:
                 continue
+                
             res = results[name]
-            status_color = cc.green if res["match"] else cc.red
-            status_tag = cc.wrap("[OK]" if res["match"] else "[DIFF]", status_color)
-            mapped_note = f" → {res['current_name']}" if res["mapped"] else ""
-            print(f"  {status_tag} {name}{mapped_note} | shape {res['shape']}")
+            statusColor = cc.green if res["match"] else cc.red
+            statusTag = cc.wrap("[OK]" if res["match"] else "[DIFF]", statusColor)
+            mappedNote = f" → {res['current_name']}" if res["mapped"] else ""
+            
+            print(f"  {statusTag} {name}{mappedNote} | shape {res['shape']}")
             if res["match"]:
                 continue
+                
             if "error" in res:
                 print(cc.wrap(f"    {res['error']}", cc.yellow))
                 continue
-            diff_count = res["diff_count"]
-            total_values = torch.tensor(res["shape"]).prod().item()
-            percentage = diff_count / total_values * 100
-            abs_diff = (res["ref_tensor"] - res["cur_tensor"]).abs()
-            non_zero = abs_diff[abs_diff > 0]
-            min_diff = non_zero.min().item() if non_zero.numel() else 0.0
-            print(f"    Max diff: {abs_diff.max().item():.8f}")
-            print(f"    Min diff: {min_diff:.8f}")
-            print(f"    Mean diff: {abs_diff.mean().item():.8f}")
+                
+            diffCount = res["diff_count"]
+            totalValues = torch.tensor(res["shape"]).prod().item()
+            percentage = diffCount / totalValues * 100
+            absDiff = (res["ref_tensor"] - res["cur_tensor"]).abs()
+            nonZero = absDiff[absDiff > 0]
+            minDiff = nonZero.min().item() if nonZero.numel() else 0.0
+            
+            print(f"    Max diff: {absDiff.max().item():.8f}")
+            print(f"    Min diff: {minDiff:.8f}")
+            print(f"    Mean diff: {absDiff.mean().item():.8f}")
             print(
-                f"    Total differing values: {diff_count} out of {total_values} ({percentage:.4f}%)"
+                f"    Total differing values: {diffCount} of {totalValues} ({percentage:.4f}%)"
             )
-            top_lines = self._top_differences(
+            
+            topLines = self._topDifferences(
                 res["ref_tensor"], res["cur_tensor"], res["diff_mask"]
             )
-            if top_lines:
+            if topLines:
                 print("    Most common differences (up to 5):")
-                for line in top_lines:
+                for line in topLines:
                     print(line)

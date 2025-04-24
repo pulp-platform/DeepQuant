@@ -4,7 +4,6 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-
 import math
 import torch
 import torch.nn.functional as F

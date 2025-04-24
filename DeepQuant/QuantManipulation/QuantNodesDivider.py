@@ -6,127 +6,125 @@
 
 import torch.fx as fx
 from typing import Dict, Any, List, Tuple
-from .QuantDequantNodes import Quant, Dequant
+from DeepQuant.QuantManipulation.QuantDequantNodes import Quant, Dequant
 import torch.nn as nn
-
-BLUE = "\033[94m"
-ENDC = "\033[0m"
-ARROW = " ›"
+from DeepQuant.Utils.ConsoleColor import ConsoleColor as cc
 
 
-def create_quant_dequant_nodes(
+def createQuantDequantNodes(
     graph: fx.Graph,
     node: fx.Node,
-    fx_model: fx.GraphModule,
-    quant_name: str,
-    dequant_name: str,
-    original_module: nn.Module,
-    param_dict: Dict[str, Any],
+    fxModel: fx.GraphModule,
+    quantName: str,
+    dequantName: str,
+    originalModule: nn.Module,
+    paramDict: Dict[str, Any],
 ) -> Tuple[fx.Node, fx.Node]:
     """Create separate Quant and Dequant nodes for a given FX node."""
     if "bias_quant" in node.target.lower():
-        main_arg = node.args[0]
+        mainArg = node.args[0]
     elif "weight_quant" in node.target.lower():
-        main_arg = node.args[0]
+        mainArg = node.args[0]
     else:
-        main_arg = node.args[0]
+        mainArg = node.args[0]
 
-    scale_val = param_dict.get("scale", None)
-    zp_val = param_dict.get("zero_point", None)
-    bw_val = param_dict.get("bit_width", None)
-    signed_val = param_dict.get("is_signed", True)
+    scaleVal = paramDict.get("scale", None)
+    zpVal = paramDict.get("zero_point", None)
+    bwVal = paramDict.get("bit_width", None)
+    signedVal = paramDict.get("is_signed", True)
 
-    fx_model.add_module(
-        quant_name, Quant(original_module, scale_val, zp_val, bw_val, signed=signed_val)
+    fxModel.add_module(
+        quantName, Quant(originalModule, scaleVal, zpVal, bwVal, signed=signedVal)
     )
-    fx_model.add_module(
-        dequant_name,
-        Dequant(original_module, scale_val, zp_val, bw_val, signed=signed_val),
+    fxModel.add_module(
+        dequantName,
+        Dequant(originalModule, scaleVal, zpVal, bwVal, signed=signedVal),
     )
 
     with graph.inserting_after(node):
-        quant_node = graph.call_module(quant_name, args=(main_arg,))
+        quantNode = graph.call_module(quantName, args=(mainArg,))
 
-    with graph.inserting_after(quant_node):
-        dequant_node = graph.call_module(dequant_name, args=(quant_node,))
+    with graph.inserting_after(quantNode):
+        dequantNode = graph.call_module(dequantName, args=(quantNode,))
 
-    return quant_node, dequant_node
+    return quantNode, dequantNode
 
 
-def split_quant_nodes(
-    fx_model: fx.GraphModule, full_params_dict: Dict[str, Dict[str, Any]], debug: bool
+def splitQuantNodes(
+    fxModel: fx.GraphModule, fullParamsDict: Dict[str, Dict[str, Any]], debug: bool
 ) -> fx.GraphModule:
-    graph = fx_model.graph
-    nodes_to_erase: List[fx.Node] = []
+    """Split quantization nodes into separate Quant and Dequant nodes."""
+    graph = fxModel.graph
+    nodesToErase: List[fx.Node] = []
 
     if debug:
-        print(f"{BLUE}{ARROW} Starting Quantization Node Splitting...{ENDC}")
+        print(cc.info("Starting Quantization Node Splitting..."))
 
-    all_nodes = list(graph.nodes)
+    allNodes = list(graph.nodes)
 
-    for node in all_nodes:
+    for node in allNodes:
         if (
             node.op == "call_module"
             and "quant" in node.target.lower()
             and "act_impl" not in node.target.lower()
         ):
-            top_level = node.target.split(".")[0]
-            if top_level in ["sigmoid"]:
+            topLevel = node.target.split(".")[0]
+            if topLevel in ["sigmoid"]:
                 continue  # FBRANCASI: Skip sigmoid
 
-            original_module = fx_model.get_submodule(node.target)
-            safe_target = node.target.replace(".", "_").replace("_quant", "")
-            quant_name = f"{safe_target}_quant_1"
-            dequant_name = f"{safe_target}_dequant"
-            param_info = full_params_dict.get(node.target, {})
+            originalModule = fxModel.get_submodule(node.target)
+            safeTarget = node.target.replace(".", "_").replace("_quant", "")
+            quantName = f"{safeTarget}_quant_1"
+            dequantName = f"{safeTarget}_dequant"
+            paramInfo = fullParamsDict.get(node.target, {})
 
-            quant_node, dequant_node = create_quant_dequant_nodes(
+            quantNode, dequantNode = createQuantDequantNodes(
                 graph,
                 node,
-                fx_model,
-                quant_name,
-                dequant_name,
-                original_module,
-                param_info,
+                fxModel,
+                quantName,
+                dequantName,
+                originalModule,
+                paramInfo,
             )
 
-            users_updated = False
-            for user_node in list(node.users.keys()):
+            usersUpdated = False
+            for userNode in list(node.users.keys()):
                 if (
-                    user_node.op == "call_function"
-                    and hasattr(user_node.target, "__name__")
-                    and user_node.target.__name__ == "cat"
+                    userNode.op == "call_function"
+                    and hasattr(userNode.target, "__name__")
+                    and userNode.target.__name__ == "cat"
                 ):
                     # FBRANCASI: This is a concatenation operation - Special Handling
-                    new_cat_args = list(user_node.args)
-                    if len(new_cat_args) >= 1 and isinstance(new_cat_args[0], list):
-                        tensors_list = new_cat_args[0]
-                        updated_tensors = []
-                        for tensor in tensors_list:
+                    newCatArgs = list(userNode.args)
+                    if len(newCatArgs) >= 1 and isinstance(newCatArgs[0], list):
+                        tensorsList = newCatArgs[0]
+                        updatedTensors = []
+                        for tensor in tensorsList:
                             if tensor is node:
-                                updated_tensors.append(dequant_node)
+                                updatedTensors.append(dequantNode)
                             else:
-                                updated_tensors.append(tensor)
-                        new_cat_args[0] = updated_tensors
-                        user_node.args = tuple(new_cat_args)
-                        users_updated = True
+                                updatedTensors.append(tensor)
+                        newCatArgs[0] = updatedTensors
+                        userNode.args = tuple(newCatArgs)
+                        usersUpdated = True
                 else:
                     # FBRANCASI: Standard node reference replacement
-                    new_args = []
-                    for arg in user_node.args:
-                        new_args.append(dequant_node if arg is node else arg)
-                    user_node.args = tuple(new_args)
-                    users_updated = True
+                    newArgs = []
+                    for arg in userNode.args:
+                        newArgs.append(dequantNode if arg is node else arg)
+                    userNode.args = tuple(newArgs)
+                    usersUpdated = True
 
-            if users_updated:
-                nodes_to_erase.append(node)
+            if usersUpdated:
+                nodesToErase.append(node)
 
-    for erase_node in nodes_to_erase:
-        graph.erase_node(erase_node)
+    for eraseNode in nodesToErase:
+        graph.erase_node(eraseNode)
 
     graph.lint()
 
     if debug:
-        print(f"{BLUE}{ARROW} Quantization Node Splitting completed Successfully{ENDC}")
+        print(cc.info("Quantization Node Splitting completed Successfully"))
 
-    return fx_model
+    return fxModel

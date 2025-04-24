@@ -12,17 +12,19 @@ from brevitas.nn.quant_layer import (
 )
 from brevitas.nn.quant_mha import QuantMultiheadAttention
 
-from .Base import TransformationPass
-from ..CustomForwards.Linear import WrapperLinear, linearForward
-from ..CustomForwards.MultiHeadAttention import mhaForward
-from ..Utils.CustomTracer import CustomBrevitasTracer
-from ..CustomForwards.Activations import (
+from DeepQuant.Transforms.Base import TransformationPass
+from DeepQuant.CustomForwards.Linear import WrapperLinear, linearForward
+from DeepQuant.CustomForwards.MultiHeadAttention import mhaForward
+from DeepQuant.Utils.CustomTracer import CustomBrevitasTracer
+from DeepQuant.CustomForwards.Activations import (
     WrapperActivation,
     activationForward,
 )
 
 
 class LinearTransformation(TransformationPass):
+    """Transforms quantized linear layers."""
+
     def __init__(self) -> None:
         super().__init__(
             moduleCls=QuantWeightBiasInputOutputLayer,
@@ -32,6 +34,7 @@ class LinearTransformation(TransformationPass):
     def injectForward(
         self, module: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
     ) -> None:
+        """Inject custom forward for linear layers."""
         module.wrappedInnerForwardImpl = WrapperLinear(module.inner_forward_impl)
         module.forward = linearForward.__get__(module)
 
@@ -41,6 +44,7 @@ class LinearTransformation(TransformationPass):
 
 
 class ActivationTransformation(TransformationPass):
+    """Transforms quantized activation layers."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -51,7 +55,7 @@ class ActivationTransformation(TransformationPass):
     def injectForward(
         self, module: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
     ) -> None:
-
+        """Inject custom forward for activation layers."""
         # FBRANCASI: If the activation implementation was provided (e.g. nn.ReLU
         # for QuantReLU), instantiate it. Otherwise, default to an identity.
         if hasattr(module, "act_impl") and module.act_impl is not None:
@@ -68,6 +72,7 @@ class ActivationTransformation(TransformationPass):
 
 
 class MHATransformation(TransformationPass):
+    """Transforms quantized multi-head attention layers."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -78,6 +83,7 @@ class MHATransformation(TransformationPass):
     def injectForward(
         self, module: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
     ) -> None:
+        """Inject custom forward for multi-head attention layers."""
         module.forward = mhaForward.__get__(module)
 
         if tracer:

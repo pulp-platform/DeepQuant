@@ -6,16 +6,18 @@
 
 from typing import List, Literal
 import torch.fx as fx
-
 from colorama import Fore, Back, Style
 from tabulate import tabulate
 
 
 class GraphModulePrinter:
+    """Formatter and printer for FX graph modules."""
+    
     @staticmethod
-    def quant_info(
+    def quantInfo(
         node: fx.Node, prop: Literal["eps_in", "eps_out", "n_levels", "signed"]
     ) -> str:
+        """Extract quantization metadata from a node."""
         if "quant" not in node.meta:
             return "{}"
 
@@ -37,7 +39,8 @@ class GraphModulePrinter:
         return "{}"
 
     @staticmethod
-    def class_info(node: fx.Node, gm: fx.GraphModule, unicode: bool = False) -> str:
+    def classInfo(node: fx.Node, gm: fx.GraphModule, unicode: bool = False) -> str:
+        """Extract class name information from a node."""
         if node.op == "call_module":
             submodule = gm.get_submodule(node.target)
             class_name = submodule.__class__.__name__
@@ -49,112 +52,114 @@ class GraphModulePrinter:
         return ""
 
     @staticmethod
-    def node_info(node: fx.Node, attr: str, unicode: bool = False) -> str:
+    def nodeInfo(node: fx.Node, attr: str, unicode: bool = False) -> str:
+        """Extract attribute information from a node."""
         if not hasattr(node, attr):
             return ""
         value = getattr(node, attr)
         if attr == "op":
             if node.op == "call_function" and unicode:
                 whitelist_functions = ["getitem"]
-                if node.target.__name__ not in whitelist_functions:
+                if hasattr(node.target, "__name__") and node.target.__name__ not in whitelist_functions:
                     return Back.YELLOW + str(value) + Style.RESET_ALL
         return str(value)
 
     @classmethod
-    def get_node_spec(
+    def getNodeSpec(
         cls,
         node: fx.Node,
         gm: fx.GraphModule,
-        show_opcode: bool = True,
-        show_class: bool = True,
-        show_name: bool = True,
-        show_target: bool = True,
-        show_args: bool = True,
-        show_kwargs: bool = True,
-        show_eps: bool = False,
-        show_nlevels: bool = True,
-        show_signed: bool = True,
+        showOpcode: bool = True,
+        showClass: bool = True,
+        showName: bool = True,
+        showTarget: bool = True,
+        showArgs: bool = True,
+        showKwargs: bool = True,
+        showEps: bool = False,
+        showNlevels: bool = True,
+        showSigned: bool = True,
         unicode: bool = False,
     ) -> List[str]:
-        node_specs: List[str] = []
+        """Generate a specification list for a node."""
+        nodeSpecs: List[str] = []
 
-        if show_opcode:
-            node_specs.append(cls.node_info(node, "op", unicode))
-        if show_class:
-            node_specs.append(cls.class_info(node, gm, unicode))
-        if show_name:
-            node_specs.append(cls.node_info(node, "name", unicode))
-        if show_target:
-            node_specs.append(cls.node_info(node, "target", unicode))
-        if show_args:
-            node_specs.append(cls.node_info(node, "args", unicode))
-        if show_kwargs:
-            node_specs.append(cls.node_info(node, "kwargs", unicode))
+        if showOpcode:
+            nodeSpecs.append(cls.nodeInfo(node, "op", unicode))
+        if showClass:
+            nodeSpecs.append(cls.classInfo(node, gm, unicode))
+        if showName:
+            nodeSpecs.append(cls.nodeInfo(node, "name", unicode))
+        if showTarget:
+            nodeSpecs.append(cls.nodeInfo(node, "target", unicode))
+        if showArgs:
+            nodeSpecs.append(cls.nodeInfo(node, "args", unicode))
+        if showKwargs:
+            nodeSpecs.append(cls.nodeInfo(node, "kwargs", unicode))
 
-        if show_nlevels:
-            node_specs.append(cls.quant_info(node, "n_levels"))
-        if show_signed:
-            node_specs.append(cls.quant_info(node, "signed"))
-        if show_eps:
-            node_specs.append(cls.quant_info(node, "eps_in"))
-            node_specs.append(cls.quant_info(node, "eps_out"))
+        if showNlevels:
+            nodeSpecs.append(cls.quantInfo(node, "n_levels"))
+        if showSigned:
+            nodeSpecs.append(cls.quantInfo(node, "signed"))
+        if showEps:
+            nodeSpecs.append(cls.quantInfo(node, "eps_in"))
+            nodeSpecs.append(cls.quantInfo(node, "eps_out"))
 
-        return node_specs
+        return nodeSpecs
 
     @classmethod
-    def print_tabular(
+    def printTabular(
         cls,
         gm: fx.GraphModule,
-        show_opcode: bool = True,
-        show_class: bool = True,
-        show_name: bool = True,
-        show_target: bool = True,
-        show_args: bool = False,
-        show_kwargs: bool = False,
-        show_eps: bool = False,
-        show_nlevels: bool = False,
-        show_signed: bool = False,
+        showOpcode: bool = True,
+        showClass: bool = True,
+        showName: bool = True,
+        showTarget: bool = True,
+        showArgs: bool = False,
+        showKwargs: bool = False,
+        showEps: bool = False,
+        showNlevels: bool = False,
+        showSigned: bool = False,
         unicode: bool = False,
     ) -> None:
-
-        node_list = list(gm.graph.nodes)
-        node_specs = [
-            cls.get_node_spec(
+        """Print a graph module in tabular format."""
+        nodeList = list(gm.graph.nodes)
+        nodeSpecs = [
+            cls.getNodeSpec(
                 node,
                 gm,
-                show_opcode=show_opcode,
-                show_class=show_class,
-                show_name=show_name,
-                show_target=show_target,
-                show_args=show_args,
-                show_kwargs=show_kwargs,
-                show_eps=show_eps,
-                show_nlevels=show_nlevels,
-                show_signed=show_signed,
+                showOpcode=showOpcode,
+                showClass=showClass,
+                showName=showName,
+                showTarget=showTarget,
+                showArgs=showArgs,
+                showKwargs=showKwargs,
+                showEps=showEps,
+                showNlevels=showNlevels,
+                showSigned=showSigned,
                 unicode=unicode,
             )
-            for node in node_list
+            for node in nodeList
         ]
 
         headers = []
-        if show_opcode:
+        if showOpcode:
             headers.append("opcode")
-        if show_class:
+        if showClass:
             headers.append("class")
-        if show_name:
+        if showName:
             headers.append("name")
-        if show_target:
+        if showTarget:
             headers.append("target")
-        if show_args:
+        if showArgs:
             headers.append("args")
-        if show_kwargs:
+        if showKwargs:
             headers.append("kwargs")
-        if show_nlevels:
+        if showNlevels:
             headers.append("n_levels")
-        if show_signed:
+        if showSigned:
             headers.append("signed")
-        if show_eps:
+        if showEps:
             headers.append("eps_in")
             headers.append("eps_out")
 
-        print(tabulate(node_specs, headers=headers, tablefmt="mixed_grid"))
+        print(tabulate(nodeSpecs, headers=headers, tablefmt="mixed_grid"))

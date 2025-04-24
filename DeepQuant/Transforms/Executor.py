@@ -7,13 +7,13 @@
 import torch
 import torch.nn as nn
 from typing import List, Optional
-from .Base import TransformationPass
-from ..Utils.CustomTracer import CustomBrevitasTracer
-from ..Utils.ConsoleColor import ConsoleColor as cc
+from DeepQuant.Transforms.Base import TransformationPass
+from DeepQuant.Utils.CustomTracer import CustomBrevitasTracer
+from DeepQuant.Utils.ConsoleColor import ConsoleColor as cc
 
 
 class TransformationExecutor:
-    """Runs a list of passes and checks output drift after each step."""
+    """Runs a sequence of transformation passes."""
 
     def __init__(
         self,
@@ -26,6 +26,7 @@ class TransformationExecutor:
         self.tracer = tracer
 
     def execute(self, model: nn.Module, exampleInput: torch.Tensor) -> nn.Module:
+        """Execute all transformations on the model."""
         model.eval()
         with torch.no_grad():
             outputBefore = model(exampleInput)
@@ -42,21 +43,21 @@ class TransformationExecutor:
                         outputBefore, outputAfter
                     ):
                         raise RuntimeError(
-                            cc.wrap(
-                                f" ✗ {transformation.__class__.__name__} failed - outputs mismatch",
-                                cc.red,
+                            cc.error(
+                                f"{transformation.__class__.__name__} failed - outputs mismatch"
                             )
                         )
 
                     if self.debug:
                         print(
-                            cc.wrap(
-                                f" ✓ {transformation.__class__.__name__} transformation successful\n",
-                                cc.blue,
-                            ),
-                            f"      leafClasses: {self.tracer.leafClasses}\n"
-                            f"      nonLeafClasses: {self.tracer.nonLeafClasses}\n",
+                            cc.success(
+                                f"{transformation.__class__.__name__} transformation successful"
+                            )
                         )
+                        if self.tracer:
+                            print(f"    leafClasses: {self.tracer.leafClasses}")
+                            print(f"    nonLeafClasses: {self.tracer.nonLeafClasses}")
+                            
                     outputBefore = outputAfter
 
         return model
