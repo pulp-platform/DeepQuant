@@ -2,7 +2,7 @@
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Victor Juing <jungvi@ethz.ch>
+# Victor Jung <jungvi@ethz.ch>
 
 import pytest
 import torch
@@ -23,18 +23,10 @@ from DeepQuant import exportQuantModel
 
 
 def prepareMBNetV3Model() -> nn.Module:
-    """
-    Prepare a quantized MobileNetV3Small model for testing.
-    Steps:
-      1) Load the torchvision MobileNetV3Small.
-      2) Convert it to eval mode.
-      3) Preprocess and adapt average pooling.
-      4) Quantize it using Brevitas.
-
-    Returns:
-        A quantized MobileNetV3Small model ready for export tests.
-    """
-    baseModel = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
+    """Prepare a quantized MobileNetV3Small model for testing."""
+    baseModel = models.mobilenet_v3_small(
+        weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
+    )
     baseModel = baseModel.eval()
 
     computeLayerMap = {
@@ -99,9 +91,7 @@ def prepareMBNetV3Model() -> nn.Module:
     baseModel = preprocess_for_quantize(
         baseModel, equalize_iters=20, equalize_scale_computation="range"
     )
-    baseModel = AdaptiveAvgPoolToAvgPool().apply(
-        baseModel, torch.ones(1, 3, 224, 224)
-    )
+    baseModel = AdaptiveAvgPoolToAvgPool().apply(baseModel, torch.ones(1, 3, 224, 224))
 
     quantizedModel = quantize(
         graph_model=baseModel,
@@ -115,10 +105,7 @@ def prepareMBNetV3Model() -> nn.Module:
 
 @pytest.mark.ModelTests
 def deepQuantTestMobileNetV3Small() -> None:
-
     torch.manual_seed(42)
-
-    quantizedModel = prepareMBNetV3Model()
+    model = prepareMBNetV3Model()
     sampleInput = torch.randn(1, 3, 224, 224)
-
-    exportQuantModel(quantizedModel, sampleInput, debug=True)
+    exportQuantModel(model, sampleInput, debug=True)

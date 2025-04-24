@@ -20,16 +20,16 @@ from DeepQuant import exportQuantModel
 
 
 def prepareYOLOv5Backbone() -> nn.Module:
+    """Prepare a quantized partial YOLOv5 model for testing."""
     from ultralytics import YOLO
 
     model = YOLO("Models/yolov5n.pt")
-    pytorch_model = model.model
+    pytorchModel = model.model
 
-    backbone = pytorch_model.model[
-        0:4
-    ]  # FBRANCASI: Just first few layers for simplicity
+    # FBRANCASI: Just first few layers for simplicity
+    backbone = pytorchModel.model[0:4]
 
-    compute_layer_map = {
+    computeLayerMap = {
         nn.Conv2d: (
             qnn.QuantConv2d,
             {
@@ -58,7 +58,7 @@ def prepareYOLOv5Backbone() -> nn.Module:
         ),
     }
 
-    quant_act_map = {
+    quantActMap = {
         nn.SiLU: (
             qnn.QuantReLU,  # FBRANCASI: As a substitute for now
             {
@@ -85,7 +85,7 @@ def prepareYOLOv5Backbone() -> nn.Module:
         ),
     }
 
-    quant_identity_map = {
+    quantIdentityMap = {
         "signed": (
             qnn.QuantIdentity,
             {
@@ -108,24 +108,20 @@ def prepareYOLOv5Backbone() -> nn.Module:
         backbone, equalize_iters=10, equalize_scale_computation="range"
     )
 
-    quantized_model = quantize(
+    quantizedModel = quantize(
         graph_model=backbone,
-        compute_layer_map=compute_layer_map,
-        quant_act_map=quant_act_map,
-        quant_identity_map=quant_identity_map,
+        compute_layer_map=computeLayerMap,
+        quant_act_map=quantActMap,
+        quant_identity_map=quantIdentityMap,
     )
 
-    return quantized_model
+    return quantizedModel
 
 
 @pytest.mark.ModelTests
 def deepQuantTestYOLOv5():
-
     torch.manual_seed(42)
-
     quantizedModel = prepareYOLOv5Backbone()
-    sample_input = torch.randn(1, 3, 128, 128)
-
+    sampleInput = torch.randn(1, 3, 128, 128)
     quantizedModel.eval()
-
-    exportQuantModel(quantizedModel, sample_input, debug=True)
+    exportQuantModel(quantizedModel, sampleInput, debug=True)

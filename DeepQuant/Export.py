@@ -299,7 +299,7 @@ def exportQuantModel(
         # f=EXPORT_FOLDER / "4_model_dequant_moved.onnx",
         f=onnxFile,
         opset_version=13,
-        keep_initializers_as_inputs=True,
+        keep_initializers_as_inputs=False,  # FBRANCASI: This prevent the onnx warnings
         do_constant_folding=False,
         input_names=["input"],
         output_names=["output"],
