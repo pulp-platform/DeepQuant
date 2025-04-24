@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Union, Tuple
-from ..CustomTracer import CustomBrevitasTracer
+from ..Utils.CustomTracer import CustomBrevitasTracer
 
 
 class TransformationPass(ABC):

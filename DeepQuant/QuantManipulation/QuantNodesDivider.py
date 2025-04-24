@@ -4,11 +4,6 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-"""
-Module for transforming FX graphs by splitting quantization nodes into Quant and Dequant,
-while skipping activation quant nodes to preserve nonzero outputs.
-"""
-
 import torch.fx as fx
 from typing import Dict, Any, List, Tuple
 from .QuantDequantNodes import Quant, Dequant
@@ -28,27 +23,7 @@ def create_quant_dequant_nodes(
     original_module: nn.Module,
     param_dict: Dict[str, Any],
 ) -> Tuple[fx.Node, fx.Node]:
-    """
-    Create separate Quant and Dequant nodes for a given FX node.
-
-    This function replaces a single quantization node (e.g. weight_quant)
-    with two call_module nodes: one for Quant and one for Dequant. Because
-    the Quant module only accepts one Tensor argument, multiple arguments
-    (e.g. bias, input, weight) must be reduced to one.
-
-    Args:
-        graph: The FX graph to insert new nodes into.
-        node: The original node referencing a quantization module.
-        fx_model: The GraphModule containing submodules.
-        quant_name: Name for the new Quant submodule.
-        dequant_name: Name for the new Dequant submodule.
-        original_module: The original Brevitas quant module.
-        param_dict: Dictionary with keys 'scale', 'zero_point', 'bit_width',
-                    and 'is_signed'.
-
-    Returns:
-        A tuple containing the newly created Quant and Dequant nodes.
-    """
+    """Create separate Quant and Dequant nodes for a given FX node."""
     if "bias_quant" in node.target.lower():
         main_arg = node.args[0]
     elif "weight_quant" in node.target.lower():
@@ -81,19 +56,6 @@ def create_quant_dequant_nodes(
 def split_quant_nodes(
     fx_model: fx.GraphModule, full_params_dict: Dict[str, Dict[str, Any]], debug: bool
 ) -> fx.GraphModule:
-    """
-    Transform an FX graph by splitting each "call_module(...quant...)" node into
-    separate Quant -> Dequant nodes, skipping activation quant nodes to preserve
-    numeric accuracy.
-
-    Args:
-        fx_model: The input FX GraphModule.
-        full_params_dict: A dictionary mapping module names to quantization parameters.
-        debug: Whether to print debug output.
-
-    Returns:
-        The updated FX GraphModule with weight/bias quant calls split.
-    """
     graph = fx_model.graph
     nodes_to_erase: List[fx.Node] = []
 
@@ -110,7 +72,7 @@ def split_quant_nodes(
         ):
             top_level = node.target.split(".")[0]
             if top_level in ["sigmoid"]:
-                continue  # Skip sigmoid
+                continue  # FBRANCASI: Skip sigmoid
 
             original_module = fx_model.get_submodule(node.target)
             safe_target = node.target.replace(".", "_").replace("_quant", "")
@@ -148,11 +110,6 @@ def split_quant_nodes(
                         new_cat_args[0] = updated_tensors
                         user_node.args = tuple(new_cat_args)
                         users_updated = True
-                    else:
-                        if debug:
-                            print(
-                                f"Warning: Unexpected cat args structure: {new_cat_args}{ENDC}"
-                            )
                 else:
                     # FBRANCASI: Standard node reference replacement
                     new_args = []

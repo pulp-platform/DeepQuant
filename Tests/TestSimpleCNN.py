@@ -14,7 +14,7 @@ from brevitas.quant.scaled_int import (
     Int32Bias,
     Int8WeightPerTensorFloat,
 )
-from DeepQuant.ExportBrevitas import exportBrevitas
+from DeepQuant import exportQuantModel
 
 
 class SimpleQuantCNN(nn.Module):
@@ -105,4 +105,4 @@ def deepQuantTestSimpleCNN() -> None:
     model = SimpleQuantCNN().eval()
     sampleInput = torch.randn(1, 1, 28, 28)
 
-    exportBrevitas(model, sampleInput, debug=True)
+    exportQuantModel(model, sampleInput, debug=True)

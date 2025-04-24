@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import brevitas.nn as qnn
 from torch import Tensor
-from DeepQuant.ExportBrevitas import exportBrevitas
+from DeepQuant import exportQuantModel
 
 from brevitas.quant.scaled_int import (
     Int8ActPerTensorFloat,
@@ -74,4 +74,4 @@ def deepQuantTestMHSA() -> None:
     model = QuantMHSANet(embed_dim=16, num_heads=4).eval()
     sampleInput = torch.randn(10, 2, 16)
 
-    exportBrevitas(model, sampleInput, debug=True)
+    exportQuantModel(model, sampleInput)

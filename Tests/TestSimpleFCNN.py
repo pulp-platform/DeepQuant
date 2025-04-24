@@ -36,7 +36,7 @@ from brevitas.quant import (
     Uint8ActPerTensorFloat,
 )
 
-from DeepQuant.ExportBrevitas import exportBrevitas
+from DeepQuant import exportQuantModel
 
 
 class SimpleFCNN(nn.Module):
@@ -223,4 +223,4 @@ def deepQuantTestSimpleFCNN() -> None:
     sampleInput = sampleInput[0:1]
     print(f"Sample input shape: {sampleInput.shape}")
 
-    exportBrevitas(modelQuant, sampleInput.to(DEVICE), debug=True)
+    exportQuantModel(modelQuant, sampleInput.to(DEVICE), debug=True)

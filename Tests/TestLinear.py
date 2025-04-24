@@ -18,7 +18,7 @@ from brevitas.quant.scaled_int import (
     Int32Bias,
     Int8WeightPerTensorFloat,
 )
-from DeepQuant.ExportBrevitas import exportBrevitas
+from DeepQuant import exportQuantModel
 
 
 class QuantLinearNet(nn.Module):
@@ -56,4 +56,4 @@ def deepQuantTestLinear() -> None:
     model = QuantLinearNet().eval()
     sampleInput = torch.randn(1, 4, 16)
 
-    exportBrevitas(model, sampleInput, debug=True)
+    exportQuantModel(model, sampleInput, debug=True)

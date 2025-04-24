@@ -15,7 +15,7 @@ from brevitas.quant.scaled_int import (
     Int32Bias,
     Int8WeightPerTensorFloat,
 )
-from DeepQuant.ExportBrevitas import exportBrevitas
+from DeepQuant import exportQuantModel
 
 
 class QuantConvNet(nn.Module):
@@ -39,22 +39,22 @@ class QuantConvNet(nn.Module):
             out_channels=16,
             kernel_size=3,
             padding=1,
-            **QuantConvNet.convAndLinQuantParams
+            **QuantConvNet.convAndLinQuantParams,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        
+
         x = self.inputQuant(x)
         x = self.conv1(x)
-        
+
         return x
 
 
 @pytest.mark.SingleLayerTests
 def deepQuantTestConv() -> None:
-    
+
     torch.manual_seed(42)
 
     model = QuantConvNet().eval()
     sampleInput = torch.randn(1, 1, 28, 28)
-    exportBrevitas(model, sampleInput, debug=True)
+    exportQuantModel(model, sampleInput, debug=True)

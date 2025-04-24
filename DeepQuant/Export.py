@@ -8,15 +8,15 @@ import torch
 import torch.nn as nn
 from pathlib import Path
 
-from DeepQuant.Injects.Transformations import (
+from DeepQuant.Transforms.Transformations import (
     LinearTransformation,  # Transformation for quantized linear layers (QuantLinear, QuantConv2d)
     ActivationTransformation,  # Transformation for quantized activation functions (QuantReLU, etc.)
     MHATransformation,  # Transformation for quantized multi-head attention modules
 )
-from DeepQuant.Injects.Executor import (
+from DeepQuant.Transforms.Executor import (
     TransformationExecutor,
 )  # Orchestrates sequential transformations
-from .CustomTracer import (
+from .Utils.CustomTracer import (
     CustomBrevitasTracer,
     customBrevitasTrace,
 )  # Custom FX tracer for Brevitas modules
@@ -44,7 +44,7 @@ from DeepQuant.Utils.TensorRecorder import TensorRecorder
 from DeepQuant.Utils.ConsoleColor import ConsoleColor as cc
 
 
-def exportBrevitas(
+def exportQuantModel(
     model: nn.Module, exampleInput: torch.Tensor, debug: bool = False
 ) -> nn.Module:
     """

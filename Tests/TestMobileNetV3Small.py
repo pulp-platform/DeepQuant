@@ -19,7 +19,7 @@ from brevitas.quant import (
 )
 from brevitas.graph.quantize import quantize
 
-from DeepQuant.ExportBrevitas import exportBrevitas
+from DeepQuant import exportQuantModel
 
 
 def prepareMBNetV3Model() -> nn.Module:
@@ -121,4 +121,4 @@ def deepQuantTestMobileNetV3Small() -> None:
     quantizedModel = prepareMBNetV3Model()
     sampleInput = torch.randn(1, 3, 224, 224)
 
-    exportBrevitas(quantizedModel, sampleInput, debug=True)
+    exportQuantModel(quantizedModel, sampleInput, debug=True)

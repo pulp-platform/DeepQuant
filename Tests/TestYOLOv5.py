@@ -16,7 +16,7 @@ from brevitas.quant import (
 )
 from brevitas.graph.quantize import quantize, preprocess_for_quantize
 
-from DeepQuant.ExportBrevitas import exportBrevitas
+from DeepQuant import exportQuantModel
 
 
 def prepareYOLOv5Backbone() -> nn.Module:
@@ -128,4 +128,4 @@ def deepQuantTestYOLOv5():
 
     quantizedModel.eval()
 
-    exportBrevitas(quantizedModel, sample_input, debug=True)
+    exportQuantModel(quantizedModel, sample_input, debug=True)
