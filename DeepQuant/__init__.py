@@ -4,6 +4,12 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+# FBRANCASI: Workaround for PyTorch/FX API change: ensure private alias exists
+import torch.fx.node as _fx_node
+
+if not hasattr(_fx_node.Node, "_Node__update_args_kwargs"):
+    _fx_node.Node._Node__update_args_kwargs = _fx_node.Node._update_args_kwargs
+
 from DeepQuant.Export import brevitasToTrueQuant
 
 __all__ = ["brevitasToTrueQuant"]
