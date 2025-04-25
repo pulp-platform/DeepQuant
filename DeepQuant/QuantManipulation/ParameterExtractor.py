@@ -5,14 +5,14 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 from typing import Any, Dict
+
 import torch
 import torch.nn as nn
-from brevitas.proxy.runtime_quant import ActQuantProxyFromInjector
 from brevitas.proxy.parameter_quant import (
-    WeightQuantProxyFromInjector,
     BiasQuantProxyFromInjector,
+    WeightQuantProxyFromInjector,
 )
-from colorama import Fore, Style
+from brevitas.proxy.runtime_quant import ActQuantProxyFromInjector
 
 
 def safeGetScale(quantObj: Any) -> Any:
@@ -37,9 +37,7 @@ def safeGetZeroPoint(quantObj: Any) -> Any:
     if quantObj is None:
         return None
     maybeZp = (
-        quantObj.zero_point()
-        if callable(quantObj.zero_point)
-        else quantObj.zero_point
+        quantObj.zero_point() if callable(quantObj.zero_point) else quantObj.zero_point
     )
     if maybeZp is None:
         return None
@@ -102,9 +100,11 @@ def extractBrevitasProxyParams(model: nn.Module) -> Dict[str, Dict[str, Any]]:
 
 def printQuantParams(paramsDict: Dict[str, Dict[str, Any]]) -> None:
     """Print extracted quantization parameters in a readable format."""
-    print(f"\n{Fore.BLUE}Extracted Parameters from the Network:{Style.RESET_ALL}")
+    from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
+
+    print(f"{cc.wrap('Extracted Parameters from the Network:', cc.blue)}")
     for layerName, quantValues in paramsDict.items():
-        print(f"  {Fore.BLUE}{layerName}:{Style.RESET_ALL}")
+        print(f"  {cc.wrap(layerName + ':', cc.blue)}")
         for paramKey, paramVal in quantValues.items():
             print(f"    {paramKey}: {paramVal}")
         print()

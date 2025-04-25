@@ -4,16 +4,17 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+import brevitas.nn as qnn
 import pytest
 import torch
 import torch.nn as nn
-import brevitas.nn as qnn
 from brevitas.quant.scaled_int import (
     Int8ActPerTensorFloat,
-    Int32Bias,
     Int8WeightPerTensorFloat,
+    Int32Bias,
 )
-from DeepQuant import exportQuantModel
+
+from DeepQuant import brevitasToTrueQuant
 
 
 class QuantLinearNet(nn.Module):
@@ -45,4 +46,4 @@ def deepQuantTestLinear() -> None:
     torch.manual_seed(42)
     model = QuantLinearNet().eval()
     sampleInput = torch.randn(1, 4, 16)
-    exportQuantModel(model, sampleInput, debug=True)
+    brevitasToTrueQuant(model, sampleInput, debug=True)

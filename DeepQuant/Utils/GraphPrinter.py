@@ -5,19 +5,19 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 from typing import List, Literal
+
 import torch.fx as fx
-from colorama import Fore, Back, Style
+from colorama import Back, Fore, Style
 from tabulate import tabulate
 
 
 class GraphModulePrinter:
     """Formatter and printer for FX graph modules."""
-    
+
     @staticmethod
     def quantInfo(
         node: fx.Node, prop: Literal["eps_in", "eps_out", "n_levels", "signed"]
     ) -> str:
-        """Extract quantization metadata from a node."""
         if "quant" not in node.meta:
             return "{}"
 
@@ -40,7 +40,6 @@ class GraphModulePrinter:
 
     @staticmethod
     def classInfo(node: fx.Node, gm: fx.GraphModule, unicode: bool = False) -> str:
-        """Extract class name information from a node."""
         if node.op == "call_module":
             submodule = gm.get_submodule(node.target)
             class_name = submodule.__class__.__name__
@@ -53,14 +52,16 @@ class GraphModulePrinter:
 
     @staticmethod
     def nodeInfo(node: fx.Node, attr: str, unicode: bool = False) -> str:
-        """Extract attribute information from a node."""
         if not hasattr(node, attr):
             return ""
         value = getattr(node, attr)
         if attr == "op":
             if node.op == "call_function" and unicode:
                 whitelist_functions = ["getitem"]
-                if hasattr(node.target, "__name__") and node.target.__name__ not in whitelist_functions:
+                if (
+                    hasattr(node.target, "__name__")
+                    and node.target.__name__ not in whitelist_functions
+                ):
                     return Back.YELLOW + str(value) + Style.RESET_ALL
         return str(value)
 
@@ -80,7 +81,6 @@ class GraphModulePrinter:
         showSigned: bool = True,
         unicode: bool = False,
     ) -> List[str]:
-        """Generate a specification list for a node."""
         nodeSpecs: List[str] = []
 
         if showOpcode:
@@ -121,7 +121,6 @@ class GraphModulePrinter:
         showSigned: bool = False,
         unicode: bool = False,
     ) -> None:
-        """Print a graph module in tabular format."""
         nodeList = list(gm.graph.nodes)
         nodeSpecs = [
             cls.getNodeSpec(

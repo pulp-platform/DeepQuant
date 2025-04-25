@@ -4,19 +4,19 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+import brevitas.nn as qnn
 import pytest
 import torch
 import torch.nn as nn
-import brevitas.nn as qnn
+from brevitas.graph.quantize import preprocess_for_quantize, quantize
 from brevitas.quant import (
     Int8ActPerTensorFloat,
     Int8WeightPerTensorFloat,
     Int32Bias,
     Uint8ActPerTensorFloat,
 )
-from brevitas.graph.quantize import quantize, preprocess_for_quantize
 
-from DeepQuant import exportQuantModel
+from DeepQuant import brevitasToTrueQuant
 
 
 def prepareYOLOv5Backbone() -> nn.Module:
@@ -124,4 +124,4 @@ def deepQuantTestYOLOv5():
     quantizedModel = prepareYOLOv5Backbone()
     sampleInput = torch.randn(1, 3, 128, 128)
     quantizedModel.eval()
-    exportQuantModel(quantizedModel, sampleInput, debug=True)
+    brevitasToTrueQuant(quantizedModel, sampleInput, debug=True)

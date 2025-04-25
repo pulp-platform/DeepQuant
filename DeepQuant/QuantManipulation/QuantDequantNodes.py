@@ -4,9 +4,10 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
-from typing import Optional
 
 
 class Quant(nn.Module):
@@ -74,5 +75,5 @@ class Dequant(nn.Module):
         """Dequantize the input tensor."""
         if self.scale is None or self.zeroPoint is None:
             return x
-        xDequant = (x - self.zeroPoint) * self.scale
-        return xDequant
+        dequantizedX = (x - self.zeroPoint) * self.scale
+        return dequantizedX

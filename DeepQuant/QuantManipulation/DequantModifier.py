@@ -5,8 +5,9 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 import torch.fx as fx
+
 from DeepQuant.QuantManipulation.QuantDequantNodes import Dequant
-from DeepQuant.Utils.ConsoleColor import ConsoleColor as cc
+from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
 
 
 def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.GraphModule:

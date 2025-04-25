@@ -4,12 +4,14 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+from typing import List, Optional
+
 import torch
 import torch.nn as nn
-from typing import List, Optional
+
 from DeepQuant.Transforms.Base import TransformationPass
-from DeepQuant.Utils.CustomTracer import CustomBrevitasTracer
-from DeepQuant.Utils.ConsoleColor import ConsoleColor as cc
+from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
+from DeepQuant.Utils.CustomTracer import QuantTracer
 
 
 class TransformationExecutor:
@@ -19,7 +21,7 @@ class TransformationExecutor:
         self,
         transformations: List[TransformationPass],
         debug: bool = False,
-        tracer: Optional[CustomBrevitasTracer] = None,
+        tracer: Optional[QuantTracer] = None,
     ) -> None:
         self.transformations = transformations
         self.debug = debug
@@ -57,7 +59,7 @@ class TransformationExecutor:
                         if self.tracer:
                             print(f"    leafClasses: {self.tracer.leafClasses}")
                             print(f"    nonLeafClasses: {self.tracer.nonLeafClasses}")
-                            
+
                     outputBefore = outputAfter
 
         return model

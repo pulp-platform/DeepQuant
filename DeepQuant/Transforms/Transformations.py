@@ -4,22 +4,20 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-import torch.nn as nn
 from typing import Optional
+
+import torch.nn as nn
 from brevitas.nn.quant_layer import (
-    QuantWeightBiasInputOutputLayer,
     QuantNonLinearActLayer,
+    QuantWeightBiasInputOutputLayer,
 )
 from brevitas.nn.quant_mha import QuantMultiheadAttention
 
-from DeepQuant.Transforms.Base import TransformationPass
+from DeepQuant.CustomForwards.Activations import WrapperActivation, activationForward
 from DeepQuant.CustomForwards.Linear import WrapperLinear, linearForward
 from DeepQuant.CustomForwards.MultiHeadAttention import mhaForward
-from DeepQuant.Utils.CustomTracer import CustomBrevitasTracer
-from DeepQuant.CustomForwards.Activations import (
-    WrapperActivation,
-    activationForward,
-)
+from DeepQuant.Transforms.Base import TransformationPass
+from DeepQuant.Utils.CustomTracer import QuantTracer
 
 
 class LinearTransformation(TransformationPass):
@@ -32,7 +30,7 @@ class LinearTransformation(TransformationPass):
         )
 
     def injectForward(
-        self, module: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
+        self, module: nn.Module, tracer: Optional[QuantTracer] = None
     ) -> None:
         """Inject custom forward for linear layers."""
         module.wrappedInnerForwardImpl = WrapperLinear(module.inner_forward_impl)
@@ -53,7 +51,7 @@ class ActivationTransformation(TransformationPass):
         )
 
     def injectForward(
-        self, module: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
+        self, module: nn.Module, tracer: Optional[QuantTracer] = None
     ) -> None:
         """Inject custom forward for activation layers."""
         # FBRANCASI: If the activation implementation was provided (e.g. nn.ReLU
@@ -81,7 +79,7 @@ class MHATransformation(TransformationPass):
         )
 
     def injectForward(
-        self, module: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
+        self, module: nn.Module, tracer: Optional[QuantTracer] = None
     ) -> None:
         """Inject custom forward for multi-head attention layers."""
         module.forward = mhaForward.__get__(module)

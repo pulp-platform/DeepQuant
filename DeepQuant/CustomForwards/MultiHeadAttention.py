@@ -5,10 +5,11 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 import math
+
 import torch
 import torch.nn.functional as F
-from torch import Tensor
 from brevitas.nn.quant_mha import QuantMultiheadAttention
+from torch import Tensor
 
 
 def mhaForward(

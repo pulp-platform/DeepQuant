@@ -4,17 +4,18 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+from typing import List, Optional, Type
+
 import torch.nn as nn
 from brevitas.fx.brevitas_tracer import (
-    _symbolic_trace,
-    _is_brevitas_leaf_module,
     Tracer,
+    _is_brevitas_leaf_module,
+    _symbolic_trace,
 )
 from torch.fx.graph_module import GraphModule
-from typing import List, Type, Optional
 
 
-class CustomBrevitasTracer(Tracer):
+class QuantTracer(Tracer):
     """Enhanced tracer with fine-grained control over module tracing."""
 
     def __init__(
@@ -48,9 +49,9 @@ class CustomBrevitasTracer(Tracer):
 
 
 def customBrevitasTrace(
-    root: nn.Module, concreteArgs=None, tracer: Optional[CustomBrevitasTracer] = None
+    root: nn.Module, concreteArgs=None, tracer: Optional[QuantTracer] = None
 ) -> GraphModule:
-    """Create an FX GraphModule using the CustomBrevitasTracer."""
+    """Create an FX GraphModule using the QuantTracer (a custom Brevitas tracer)."""
     if tracer is None:
-        tracer = CustomBrevitasTracer()
+        tracer = QuantTracer()
     return _symbolic_trace(tracer, root, concreteArgs)

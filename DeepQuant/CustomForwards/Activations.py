@@ -5,8 +5,8 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 import torch.nn as nn
-from torch import Tensor
 from brevitas.nn.quant_layer import QuantNonLinearActLayer
+from torch import Tensor
 
 
 class WrapperActivation(nn.Module):

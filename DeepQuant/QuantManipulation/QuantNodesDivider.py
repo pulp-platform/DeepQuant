@@ -4,14 +4,16 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+from typing import Any, Dict, List, Tuple
+
 import torch.fx as fx
-from typing import Dict, Any, List, Tuple
-from DeepQuant.QuantManipulation.QuantDequantNodes import Quant, Dequant
 import torch.nn as nn
-from DeepQuant.Utils.ConsoleColor import ConsoleColor as cc
+
+from DeepQuant.QuantManipulation.QuantDequantNodes import Dequant, Quant
+from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
 
 
-def createQuantDequantNodes(
+def insertQuantDequantPair(
     graph: fx.Graph,
     node: fx.Node,
     fxModel: fx.GraphModule,
@@ -50,12 +52,12 @@ def createQuantDequantNodes(
     return quantNode, dequantNode
 
 
-def splitQuantNodes(
+def convertQuantOperations(
     fxModel: fx.GraphModule, fullParamsDict: Dict[str, Dict[str, Any]], debug: bool
 ) -> fx.GraphModule:
     """Split quantization nodes into separate Quant and Dequant nodes."""
     graph = fxModel.graph
-    nodesToErase: List[fx.Node] = []
+    nodesToRemove: List[fx.Node] = []
 
     if debug:
         print(cc.info("Starting Quantization Node Splitting..."))
@@ -78,7 +80,7 @@ def splitQuantNodes(
             dequantName = f"{safeTarget}_dequant"
             paramInfo = fullParamsDict.get(node.target, {})
 
-            quantNode, dequantNode = createQuantDequantNodes(
+            quantNode, dequantNode = insertQuantDequantPair(
                 graph,
                 node,
                 fxModel,
@@ -117,9 +119,9 @@ def splitQuantNodes(
                     usersUpdated = True
 
             if usersUpdated:
-                nodesToErase.append(node)
+                nodesToRemove.append(node)
 
-    for eraseNode in nodesToErase:
+    for eraseNode in nodesToRemove:
         graph.erase_node(eraseNode)
 
     graph.lint()

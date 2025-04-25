@@ -4,6 +4,6 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-from DeepQuant.Export import exportQuantModel
+from DeepQuant.Export import brevitasToTrueQuant
 
-__all__ = ["exportQuantModel"]
+__all__ = ["brevitasToTrueQuant"]

@@ -5,16 +5,17 @@
 # Victor Jung <jungvi@iis.ee.ethz.ch>
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+import brevitas.nn as qnn
 import pytest
 import torch
 import torch.nn as nn
-import brevitas.nn as qnn
 from brevitas.quant.scaled_int import (
     Int8ActPerTensorFloat,
-    Int32Bias,
     Int8WeightPerTensorFloat,
+    Int32Bias,
 )
-from DeepQuant import exportQuantModel
+
+from DeepQuant import brevitasToTrueQuant
 
 
 class QuantConvNet(nn.Module):
@@ -52,4 +53,4 @@ def deepQuantTestConv() -> None:
     torch.manual_seed(42)
     model = QuantConvNet().eval()
     sampleInput = torch.randn(1, 1, 28, 28)
-    exportQuantModel(model, sampleInput, debug=True)
+    brevitasToTrueQuant(model, sampleInput, debug=True)

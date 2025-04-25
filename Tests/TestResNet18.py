@@ -5,30 +5,29 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 import tarfile
-from pathlib import Path
-import pytest
-from tqdm import tqdm
 import urllib.request
+from pathlib import Path
 
+import brevitas.nn as qnn
+import pytest
 import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, Subset
-from torchvision.datasets import ImageFolder
-
-import brevitas.nn as qnn
+from brevitas.graph.calibrate import calibration_mode
+from brevitas.graph.per_input import AdaptiveAvgPoolToAvgPool
+from brevitas.graph.quantize import preprocess_for_quantize, quantize
 from brevitas.quant import (
     Int8ActPerTensorFloat,
     Int8WeightPerTensorFloat,
     Int32Bias,
     Uint8ActPerTensorFloat,
 )
-from brevitas.graph.quantize import preprocess_for_quantize, quantize
-from brevitas.graph.per_input import AdaptiveAvgPoolToAvgPool
-from brevitas.graph.calibrate import calibration_mode
+from torch.utils.data import DataLoader, Subset
+from torchvision.datasets import ImageFolder
+from tqdm import tqdm
 
-from DeepQuant import exportQuantModel
+from DeepQuant import brevitasToTrueQuant
 
 
 def evaluateModel(model, dataLoader, evalDevice, name="Model"):
@@ -260,7 +259,7 @@ def deepQuantTestResnet18() -> None:
     FQTop1, FQTop5 = evaluateModel(FQModel, valLoader, device, "FQ ResNet18")
 
     sampleInputImg = torch.randn(1, 3, 224, 224).to("cpu")
-    TQModel = exportQuantModel(FQModel, sampleInputImg, debug=True)
+    TQModel = brevitasToTrueQuant(FQModel, sampleInputImg, debug=True)
 
     numParameters = sum(p.numel() for p in TQModel.parameters())
     print(f"Number of parameters: {numParameters:,}")

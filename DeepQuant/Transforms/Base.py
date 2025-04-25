@@ -4,11 +4,13 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+from abc import ABC, abstractmethod
+from typing import Any, Optional, Tuple, Union
+
 import torch
 import torch.nn as nn
-from abc import ABC, abstractmethod
-from typing import Any, Optional, Union, Tuple
-from DeepQuant.Utils.CustomTracer import CustomBrevitasTracer
+
+from DeepQuant.Utils.CustomTracer import QuantTracer
 
 
 class TransformationPass(ABC):
@@ -28,7 +30,7 @@ class TransformationPass(ABC):
 
     @abstractmethod
     def injectForward(
-        self, module: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
+        self, module: nn.Module, tracer: Optional[QuantTracer] = None
     ) -> None:
         """Inject the custom forward implementation into a module."""
         pass
@@ -41,9 +43,7 @@ class TransformationPass(ABC):
             atol = self.validationTol
         return torch.allclose(outputBefore, outputAfter, atol=atol)
 
-    def transform(
-        self, model: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
-    ) -> bool:
+    def transform(self, model: nn.Module, tracer: Optional[QuantTracer] = None) -> bool:
         """Apply the transformation to all matching submodules."""
         transformDone = False
         for _, submodule in model.named_modules():

@@ -4,22 +4,21 @@
 #
 # Victor Jung <jungvi@ethz.ch>
 
+import brevitas.nn as qnn
 import pytest
 import torch
 import torch.nn as nn
 import torchvision.models as models
-from brevitas.graph.quantize import preprocess_for_quantize
 from brevitas.graph.per_input import AdaptiveAvgPoolToAvgPool
-import brevitas.nn as qnn
+from brevitas.graph.quantize import preprocess_for_quantize, quantize
 from brevitas.quant import (
     Int8ActPerTensorFloat,
     Int8WeightPerTensorFloat,
     Int32Bias,
     Uint8ActPerTensorFloat,
 )
-from brevitas.graph.quantize import quantize
 
-from DeepQuant import exportQuantModel
+from DeepQuant import brevitasToTrueQuant
 
 
 def prepareMBNetV3Model() -> nn.Module:
@@ -108,4 +107,4 @@ def deepQuantTestMobileNetV3Small() -> None:
     torch.manual_seed(42)
     model = prepareMBNetV3Model()
     sampleInput = torch.randn(1, 3, 224, 224)
-    exportQuantModel(model, sampleInput, debug=True)
+    brevitasToTrueQuant(model, sampleInput, debug=True)

@@ -4,19 +4,19 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+import brevitas.nn as qnn
 import pytest
 import torch
 import torch.nn as nn
-import brevitas.nn as qnn
-from torch import Tensor
-from DeepQuant import exportQuantModel
-
 from brevitas.quant.scaled_int import (
     Int8ActPerTensorFloat,
-    Int32Bias,
     Int8WeightPerTensorFloat,
+    Int32Bias,
     Uint8ActPerTensorFloat,
 )
+from torch import Tensor
+
+from DeepQuant import brevitasToTrueQuant
 
 
 class QuantMHSANet(nn.Module):
@@ -56,4 +56,4 @@ def deepQuantTestMHSA() -> None:
     torch.manual_seed(42)
     model = QuantMHSANet(embedDim=16, numHeads=4).eval()
     sampleInput = torch.randn(10, 2, 16)
-    exportQuantModel(model, sampleInput)
+    brevitasToTrueQuant(model, sampleInput)

@@ -4,27 +4,25 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-import warnings
 from pathlib import Path
-from tqdm import tqdm
 
+import brevitas.nn as qnn
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
-
-import brevitas.nn as qnn
-from brevitas.graph.quantize import preprocess_for_quantize, quantize
 from brevitas.graph.calibrate import calibration_mode
+from brevitas.graph.quantize import preprocess_for_quantize, quantize
 from brevitas.quant import (
     Int8ActPerTensorFloat,
     Int8WeightPerTensorFloat,
     Int32Bias,
     Uint8ActPerTensorFloat,
 )
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+from tqdm import tqdm
 
-from DeepQuant import exportQuantModel
+from DeepQuant import brevitasToTrueQuant
 
 
 class SimpleFCNN(nn.Module):
@@ -200,4 +198,4 @@ def deepQuantTestSimpleFCNN() -> None:
     sampleInput, _ = next(iter(testLoader))
     sampleInput = sampleInput[0:1]
 
-    exportQuantModel(modelQuant, sampleInput.to(DEVICE), debug=True)
+    brevitasToTrueQuant(modelQuant, sampleInput.to(DEVICE), debug=True)

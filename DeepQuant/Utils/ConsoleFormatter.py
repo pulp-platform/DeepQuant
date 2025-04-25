@@ -45,3 +45,10 @@ class ConsoleColor:
     def warning(text: str) -> str:
         """Format a warning message."""
         return ConsoleColor.wrap(text, ConsoleColor.yellow)
+
+    @staticmethod
+    def header(text: str) -> str:
+        """Format a step header with separator lines."""
+        separator = "=" * 50
+        header_text = f"{separator}\n{text}\n{separator}"
+        return f"\n{ConsoleColor.wrap(header_text, ConsoleColor.magenta)}"
