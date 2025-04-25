@@ -41,7 +41,7 @@ def evaluateModel(model, dataLoader, evalDevice, name="Model"):
             isTQ = "TQ" in name
 
             if isTQ:
-                # Process different batches for the TQ model
+                # FBRANCASI: Process different batches for the TQ model
                 for i in range(inputs.size(0)):
                     singleInput = inputs[i : i + 1].to(evalDevice)
                     singleOutput = model(singleInput)
@@ -222,9 +222,9 @@ def deepQuantTestResnet18() -> None:
     dataset.targets = [s[1] for s in newSamples]
 
     # FBRANCASI: Optional, reduce number of example for faster validation
-    DATASET_LIMIT = 256
-    dataset = Subset(dataset, list(range(DATASET_LIMIT)))
-    print(f"Validation dataset size set to {len(dataset)} images.")
+    # DATASET_LIMIT = 256
+    # dataset = Subset(dataset, list(range(DATASET_LIMIT)))
+    # print(f"Validation dataset size set to {len(dataset)} images.")
 
     calibLoader = DataLoader(
         Subset(dataset, list(range(256))), batch_size=32, shuffle=False, pin_memory=True
