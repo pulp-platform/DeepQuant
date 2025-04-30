@@ -14,7 +14,7 @@ from brevitas.nn.quant_layer import (
 from brevitas.nn.quant_mha import QuantMultiheadAttention
 
 from DeepQuant.CustomForwards.Activations import WrapperActivation, activationForward
-from DeepQuant.CustomForwards.Linear import WrapperLinear, linearForward
+from DeepQuant.CustomForwards.WBIOL import WBIOLForward, WrapperWBIOL
 from DeepQuant.CustomForwards.MultiHeadAttention import mhaForward
 from DeepQuant.Transforms.Base import TransformationPass
 from DeepQuant.Utils.CustomTracer import QuantTracer
@@ -33,11 +33,11 @@ class LinearTransformation(TransformationPass):
         self, module: nn.Module, tracer: Optional[QuantTracer] = None
     ) -> None:
         """Inject custom forward for linear layers."""
-        module.wrappedInnerForwardImpl = WrapperLinear(module.inner_forward_impl)
-        module.forward = linearForward.__get__(module)
+        module.wrappedInnerForwardImpl = WrapperWBIOL(module.inner_forward_impl)
+        module.forward = WBIOLForward.__get__(module)
 
         if tracer:
-            tracer.registerLeafModule(WrapperLinear)
+            tracer.registerLeafModule(WrapperWBIOL)
             tracer.registerNonLeafModule(QuantWeightBiasInputOutputLayer)
 
 

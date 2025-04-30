@@ -23,7 +23,7 @@ def prepareYOLOv5Backbone() -> nn.Module:
     """Prepare a quantized partial YOLOv5 model for testing."""
     from ultralytics import YOLO
 
-    model = YOLO("Models/yolov5n.pt")
+    model = YOLO("Models/yolov5nu.pt")
     pytorchModel = model.model
 
     # FBRANCASI: Just first few layers for simplicity

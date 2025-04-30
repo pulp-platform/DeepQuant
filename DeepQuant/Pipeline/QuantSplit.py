@@ -9,7 +9,7 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 
-from DeepQuant.QuantManipulation.ParameterExtractor import (
+from DeepQuant.QuantManipulation.QuantizationParameterExtractor import (
     extractBrevitasProxyParams,
     printQuantParams,
 )

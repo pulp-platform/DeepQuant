@@ -15,8 +15,8 @@ from brevitas.proxy.parameter_quant import (
 from brevitas.proxy.runtime_quant import ActQuantProxyFromInjector
 
 
-def safeGetScale(quantObj: Any) -> Any:
-    """Safely extract scale parameter from quantization object."""
+def getScale(quantObj: Any) -> Any:
+    """Extract scale parameter from quantization object."""
     if quantObj is None:
         return None
     maybeScale = quantObj.scale() if callable(quantObj.scale) else quantObj.scale
@@ -32,8 +32,8 @@ def safeGetScale(quantObj: Any) -> Any:
         return None
 
 
-def safeGetZeroPoint(quantObj: Any) -> Any:
-    """Safely extract zero point parameter from quantization object."""
+def getZeroPoint(quantObj: Any) -> Any:
+    """Extract zero point parameter from quantization object."""
     if quantObj is None:
         return None
     maybeZp = (
@@ -51,8 +51,8 @@ def safeGetZeroPoint(quantObj: Any) -> Any:
         return None
 
 
-def safeGetIsSigned(quantObj: Any) -> bool:
-    """Safely determine if quantization is signed."""
+def getIsSigned(quantObj: Any) -> bool:
+    """Determine if quantization is signed."""
     if hasattr(quantObj, "is_signed"):
         return getattr(quantObj, "is_signed")
     if hasattr(quantObj, "min_val"):
@@ -60,7 +60,7 @@ def safeGetIsSigned(quantObj: Any) -> bool:
             return quantObj.min_val < 0
         except Exception:
             pass
-    zp = safeGetZeroPoint(quantObj)
+    zp = getZeroPoint(quantObj)
     if zp is not None:
         # If zero_point is near zero, assume unsigned quantization.
         return not (abs(zp) < 1e-5)
@@ -82,10 +82,10 @@ def extractBrevitasProxyParams(model: nn.Module) -> Dict[str, Dict[str, Any]]:
                     BiasQuantProxyFromInjector,
                 ),
             ):
-                scl = safeGetScale(childMod)
-                zp = safeGetZeroPoint(childMod)
+                scl = getScale(childMod)
+                zp = getZeroPoint(childMod)
                 bw = childMod.bit_width()
-                isSigned = safeGetIsSigned(childMod)
+                isSigned = getIsSigned(childMod)
                 paramsDict[fullName] = {
                     "scale": scl,
                     "zero_point": zp,

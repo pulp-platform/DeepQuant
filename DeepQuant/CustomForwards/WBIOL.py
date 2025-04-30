@@ -9,7 +9,7 @@ from brevitas.nn.quant_layer import QuantWeightBiasInputOutputLayer
 from torch import Tensor
 
 
-class WrapperLinear(nn.Module):
+class WrapperWBIOL(nn.Module):
     """Expose `inner_forward_impl` as a standalone submodule."""
 
     def __init__(self, innerForwardImpl: nn.Module) -> None:
@@ -22,7 +22,7 @@ class WrapperLinear(nn.Module):
         return self.innerForwardImpl(quantInput, quantWeight, quantBias)
 
 
-def linearForward(self: QuantWeightBiasInputOutputLayer, inp: Tensor) -> Tensor:
+def WBIOLForward(self: QuantWeightBiasInputOutputLayer, inp: Tensor) -> Tensor:
     """Quant-in → quant-weight/bias → matmul → quant-out."""
     quantInput = self.input_quant(inp)
     quantWeight = self.weight_quant(self.weight)
