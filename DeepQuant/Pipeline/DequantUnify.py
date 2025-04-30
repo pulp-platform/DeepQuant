@@ -69,9 +69,10 @@ def mergeDequants(
     unifiedModel = unifyLinearDequants(model, debug=debug)
     unifiedModel.recompile()
 
-    print(cc.header("4. Network after Modification of Dequant Nodes"))
-    printer.printTabular(unifiedModel)
-    print()
+    if debug:
+        print(cc.header("4. Network after Modification of Dequant Nodes"))
+        printer.printTabular(unifiedModel)
+        print()
 
     with torch.no_grad():
         output = unifiedModel(exampleInput)
