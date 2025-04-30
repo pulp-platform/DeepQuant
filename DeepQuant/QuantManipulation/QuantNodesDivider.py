@@ -43,8 +43,9 @@ def insertQuantDequantPair(
         Dequant(originalModule, scaleVal, zpVal, bwVal, signed=signedVal),
     )
 
-    with graph.inserting_after(node):
-        quantNode = graph.call_module(quantName, args=(mainArg,))
+    with fxModel.graph.inserting_after(node):
+        import IPython; IPython.embed()
+        quantNode = fxModel.graph.call_module(quantName, args=(mainArg,))
 
     with graph.inserting_after(quantNode):
         dequantNode = graph.call_module(dequantName, args=(quantNode,))

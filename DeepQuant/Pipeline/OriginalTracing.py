@@ -14,6 +14,7 @@ from brevitas.fx import brevitas_symbolic_trace
 from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
 from DeepQuant.Utils.GraphPrinter import GraphModulePrinter
 
+from torch._dynamo import allow_in_graph
 
 def traceOriginalModel(
     model: nn.Module, exampleInput: torch.Tensor, debug: bool = False
@@ -21,7 +22,36 @@ def traceOriginalModel(
     """Symbolically trace the original model using Brevitas."""
     printer = GraphModulePrinter()
 
-    tracedModel = brevitas_symbolic_trace(model)
+    # tracedModel = brevitas_symbolic_trace(model)
+    graphs = []
+
+    def dynamo_graph_extract_compiler(gm, inputs: torch.Tensor):
+        graphs.append(gm)
+        return gm.forward
+    
+
+    torch._dynamo.reset()
+    torch._dynamo.config.verbose = True
+
+    allow_in_graph(model.inputQuant)
+    allow_in_graph(model.inputQuant.__class__)
+    allow_in_graph(model.inputQuant.forward)
+
+    allow_in_graph(model.inputQuant)
+    allow_in_graph(model.linear1.__class__)
+    allow_in_graph(model.linear1.forward)
+    # JUNGVI: For Philip, dynamo uses the id of the thing passed in allow_in_graph to filter them. But it does not seems to work at least for brevitas layers, IDK if they have smth special...
+
+    import IPython; IPython.embed()
+
+    model_fn = torch.compile(model, backend = dynamo_graph_extract_compiler, dynamic = False)
+    
+    with torch.no_grad():
+        _ = model_fn(exampleInput)
+
+    import IPython; IPython.embed()
+
+    tracedModel = graphs[0]
 
     if debug:
         print(cc.header("1. Original Network"))

@@ -16,7 +16,7 @@ from DeepQuant.Transforms.Transformations import (
     MHATransformation,
 )
 from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
-from DeepQuant.Utils.CustomTracer import QuantTracer, customBrevitasTrace
+from DeepQuant.Utils.CustomTracer import QuantTracer
 from DeepQuant.Utils.GraphPrinter import GraphModulePrinter
 
 
@@ -40,14 +40,17 @@ def injectCustomForwards(
     executor = TransformationExecutor(transformations, debug=debug, tracer=tracer)
     transformedModel = executor.execute(model, exampleInput)
 
-    fxModel = customBrevitasTrace(
-        root=transformedModel,
-        tracer=tracer,
-    )
-    fxModel.recompile()
+    # fxModel = customBrevitasTrace(
+    #     root=transformedModel,
+    #     tracer=tracer,
+    # )
+    # fxModel.recompile()
+    import IPython; IPython.embed()
+    fxModel = tracer.trace(transformedModel, exampleInput)
+    import IPython; IPython.embed()
 
-    with torch.no_grad():
-        output = fxModel(exampleInput)
+    # with torch.no_grad():
+    output = fxModel(exampleInput)
 
     if torch.allclose(referenceOutput, output, atol=1e-5):
         if debug:
