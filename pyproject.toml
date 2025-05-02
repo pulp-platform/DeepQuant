@@ -33,6 +33,7 @@ dependencies = [
     "onnx",
     "onnxoptimizer",
     "onnxruntime",
+    "ultralytics",
 ]
 
 [tool.setuptools]

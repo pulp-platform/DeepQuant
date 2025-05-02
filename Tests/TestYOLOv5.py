@@ -2,14 +2,12 @@
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Victor Jung <jungvi@ethz.ch>
+# Federico Brancasi <fbrancasi@ethz.ch>
 
 import brevitas.nn as qnn
 import pytest
 import torch
 import torch.nn as nn
-import torchvision.models as models
-from brevitas.graph.per_input import AdaptiveAvgPoolToAvgPool
 from brevitas.graph.quantize import preprocess_for_quantize, quantize
 from brevitas.quant import (
     Int8ActPerTensorFloat,
@@ -21,12 +19,15 @@ from brevitas.quant import (
 from DeepQuant import brevitasToTrueQuant
 
 
-def prepareMBNetV3Model() -> nn.Module:
-    """Prepare a quantized MobileNetV3Small model for testing."""
-    baseModel = models.mobilenet_v3_small(
-        weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
-    )
-    baseModel = baseModel.eval()
+def prepareYOLOv5Backbone() -> nn.Module:
+    """Prepare a quantized partial YOLOv5 model for testing."""
+    from ultralytics import YOLO
+
+    model = YOLO("Models/yolov5nu.pt")
+    pytorchModel = model.model
+
+    # FBRANCASI: Just first few layers for simplicity
+    backbone = pytorchModel.model[0:4]
 
     computeLayerMap = {
         nn.Conv2d: (
@@ -58,8 +59,24 @@ def prepareMBNetV3Model() -> nn.Module:
     }
 
     quantActMap = {
+        nn.SiLU: (
+            qnn.QuantReLU,  # FBRANCASI: As a substitute for now
+            {
+                "act_quant": Uint8ActPerTensorFloat,
+                "return_quant_tensor": True,
+                "bit_width": 8,
+            },
+        ),
         nn.ReLU: (
             qnn.QuantReLU,
+            {
+                "act_quant": Uint8ActPerTensorFloat,
+                "return_quant_tensor": True,
+                "bit_width": 8,
+            },
+        ),
+        nn.LeakyReLU: (
+            qnn.QuantReLU,  # FBRANCASI: As a substitute for now
             {
                 "act_quant": Uint8ActPerTensorFloat,
                 "return_quant_tensor": True,
@@ -87,13 +104,12 @@ def prepareMBNetV3Model() -> nn.Module:
         ),
     }
 
-    baseModel = preprocess_for_quantize(
-        baseModel, equalize_iters=20, equalize_scale_computation="range"
+    backbone = preprocess_for_quantize(
+        backbone, equalize_iters=10, equalize_scale_computation="range"
     )
-    baseModel = AdaptiveAvgPoolToAvgPool().apply(baseModel, torch.ones(1, 3, 224, 224))
 
     quantizedModel = quantize(
-        graph_model=baseModel,
+        graph_model=backbone,
         compute_layer_map=computeLayerMap,
         quant_act_map=quantActMap,
         quant_identity_map=quantIdentityMap,
@@ -103,8 +119,9 @@ def prepareMBNetV3Model() -> nn.Module:
 
 
 @pytest.mark.ModelTests
-def deepQuantTestMobileNetV3Small() -> None:
+def deepQuantTestYOLOv5():
     torch.manual_seed(42)
-    model = prepareMBNetV3Model()
-    sampleInput = torch.randn(1, 3, 224, 224)
-    brevitasToTrueQuant(model, sampleInput, debug=True)
+    quantizedModel = prepareYOLOv5Backbone()
+    sampleInput = torch.randn(1, 3, 128, 128)
+    quantizedModel.eval()
+    brevitasToTrueQuant(quantizedModel, sampleInput, debug=True)
