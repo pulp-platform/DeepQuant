@@ -23,6 +23,7 @@ jobs:
         with:
           context: .
           file: Container/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
-          # JUNGVI: If you operate from a fork and want to build a new docker make sure to replace 'pulp-platform' by your uname. 
-          tags: ghcr.io/pulp-platform/deepquant:main 
+          # JUNGVI: If you operate from a fork and want to build a new docker make sure to replace 'pulp-platform' by your uname.
+          tags: ghcr.io/pulp-platform/deepquant:wiesep-dev
