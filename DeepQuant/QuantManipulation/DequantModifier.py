@@ -5,7 +5,6 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 import torch.fx as fx
-import torch
 
 from DeepQuant.QuantManipulation.QuantDequantNodes import Dequant
 from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
@@ -76,22 +75,24 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
         #         otherwise, rely on weight*input
         if biasDequantNode is not None:
             oldBiasDequantMod = fxModel.get_submodule(biasDequantNode.target)
-            dequantScale     = oldBiasDequantMod.scale
+            dequantScale = oldBiasDequantMod.scale
             dequantZeroPoint = oldBiasDequantMod.zeroPoint
-            dequantBitWidth  = oldBiasDequantMod.bitWidth
+            dequantBitWidth = oldBiasDequantMod.bitWidth
             oldDequantMod = oldBiasDequantMod
         else:
-            oldInputDequantMod  = fxModel.get_submodule(inputDequantNode.target)
+            oldInputDequantMod = fxModel.get_submodule(inputDequantNode.target)
             oldWeightDequantMod = fxModel.get_submodule(weightDequantNode.target)
-            dequantScale     = oldWeightDequantMod.scale * oldInputDequantMod.scale
+            dequantScale = oldWeightDequantMod.scale * oldInputDequantMod.scale
             # FCONTI: technically it should be:
             #         dZP = oWDM.zP * oIDM.zP - oWDM.scale * oIDM.zP * sum(weights)
             #         how to appropriately compute sum(weights)?
             #         for now we restrict ourselves to oIDM.zP = 0, so dZP = 0
             if debug and oldInputDequantMod.zeroPoint != 0.0:
-                print(f"Warning: input Dequant node for {node.target} has non-zero zero-point (unsupported). Expect wrong results!")
+                print(
+                    f"Warning: input Dequant node for {node.target} has non-zero zero-point (unsupported). Expect wrong results!"
+                )
             dequantZeroPoint = 0.0
-            dequantBitWidth  = 32 # FCONTI: this is simply a reasonable assumption: is there a less arbitrary one?
+            dequantBitWidth = 32  # FCONTI: this is simply a reasonable assumption: is there a less arbitrary one?
             oldDequantMod = oldWeightDequantMod
 
         for dnode in (inputDequantNode, weightDequantNode):

@@ -47,7 +47,8 @@ class Quant(nn.Module):
 
         xScaled = x / self.scale
         xShifted = xScaled + self.zeroPoint
-        xRounded = torch.round(xShifted)
+        xRounded = torch.floor(xShifted + 0.5)
+
         if self.bitWidth is not None:
             xRounded = torch.clamp(xRounded, self.minVal, self.maxVal)
         return xRounded
