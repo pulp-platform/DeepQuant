@@ -20,6 +20,7 @@ def mergeDequants(
     exampleInput: torch.Tensor,
     referenceOutput: torch.Tensor,
     debug: bool = False,
+    checkEquivalence: bool = False,
 ) -> Tuple[nn.Module, torch.Tensor]:
     """
     Unify dequantization nodes to enable integer-only computation.
@@ -78,12 +79,13 @@ def mergeDequants(
         output = unifiedModel(exampleInput)
 
     # FBRANCASI: Check output equivalence with a warning instead of error
-    if not torch.allclose(referenceOutput, output, atol=1e-5) and debug:
-        print(
-            cc.warning(
-                "Modification of Dequant Nodes may have changed the output slightly"
+    if checkEquivalence:
+        if not torch.allclose(referenceOutput, output, atol=1e-5) and debug:
+            print(
+                cc.warning(
+                    "Modification of Dequant Nodes may have changed the output slightly"
+                )
             )
-        )
 
     if debug:
         # FBRANCASI: Register hooks for the unified model and compare tensors

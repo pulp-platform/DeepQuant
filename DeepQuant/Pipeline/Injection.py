@@ -25,6 +25,7 @@ def injectCustomForwards(
     exampleInput: torch.Tensor,
     referenceOutput: torch.Tensor,
     debug: bool = False,
+    checkEquivalence: bool = False,
 ) -> Tuple[nn.Module, torch.Tensor]:
     """Inject custom forward implementations into the model."""
     printer = GraphModulePrinter()
@@ -49,13 +50,14 @@ def injectCustomForwards(
     with torch.no_grad():
         output = fxModel(exampleInput)
 
-    if torch.allclose(referenceOutput, output, atol=1e-5):
-        if debug:
-            print(cc.success("Injection of New Modules: output is consistent"))
-    else:
-        raise RuntimeError(
-            cc.error("Injection of New Modules changed the output significantly")
-        )
+    if checkEquivalence:
+        if torch.allclose(referenceOutput, output, atol=1e-5):
+            if debug:
+                print(cc.success("Injection of New Modules: output is consistent"))
+        else:
+            raise RuntimeError(
+                cc.error("Injection of New Modules changed the output significantly")
+            )
 
     if debug:
         print(cc.header("2. Network after Injection of New Modules"))

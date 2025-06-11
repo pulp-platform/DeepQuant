@@ -82,4 +82,4 @@ def deepQuantTestSimpleCNN() -> None:
     torch.manual_seed(42)
     model = SimpleQuantCNN().eval()
     sampleInput = torch.randn(1, 1, 28, 28)
-    brevitasToTrueQuant(model, sampleInput, debug=True)
+    brevitasToTrueQuant(model, sampleInput, debug=True, checkEquivalence=True)

@@ -22,6 +22,7 @@ def brevitasToTrueQuant(
     exampleInput: torch.Tensor,
     exportPath: Optional[Union[str, Path]] = Path.cwd() / "Tests" / "ONNX",
     debug: bool = False,
+    checkEquivalence: bool = False,
 ) -> nn.Module:
     """
     Export a Brevitas model to an FX GraphModule with unrolled quantization operations.
@@ -35,16 +36,18 @@ def brevitasToTrueQuant(
 
     # Pipeline Step 2: Inject custom forward implementations
     transformedModel, transformedOutput = injectCustomForwards(
-        tracedModel, exampleInput, originalOutput, debug
+        tracedModel, exampleInput, originalOutput, debug, checkEquivalence
     )
 
     # Pipeline Step 3: Split quantization nodes
     splitModel, splitOutput = splitQuantNodes(
-        transformedModel, exampleInput, transformedOutput, debug
+        transformedModel, exampleInput, transformedOutput, debug, checkEquivalence
     )
 
     # Pipeline Step 4: Unify dequant nodes
-    unifiedModel, _ = mergeDequants(splitModel, exampleInput, splitOutput, debug)
+    unifiedModel, _ = mergeDequants(
+        splitModel, exampleInput, splitOutput, debug, checkEquivalence
+    )
 
     # Pipeline Step 5: Export to ONNX
     onnxFile, _ = exportToOnnx(unifiedModel, exampleInput, exportPath, debug)

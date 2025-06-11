@@ -23,6 +23,7 @@ def splitQuantNodes(
     exampleInput: torch.Tensor,
     referenceOutput: torch.Tensor,
     debug: bool = False,
+    checkEquivalence: bool = False,
 ) -> Tuple[nn.Module, torch.Tensor]:
     """
     Split quantization nodes into separate Quant and Dequant nodes.
@@ -44,13 +45,14 @@ def splitQuantNodes(
     with torch.no_grad():
         output = splitModel(exampleInput)
 
-    if torch.allclose(referenceOutput, output, atol=1e-5):
-        if debug:
-            print(cc.success("Split of Quant Nodes: output is consistent"))
-    else:
-        raise RuntimeError(
-            cc.error("Split of Quant Nodes changed the output significantly")
-        )
+    if checkEquivalence:
+        if torch.allclose(referenceOutput, output, atol=1e-5):
+            if debug:
+                print(cc.success("Split of Quant Nodes: output is consistent"))
+        else:
+            raise RuntimeError(
+                cc.error("Split of Quant Nodes changed the output significantly")
+            )
 
     if debug:
         print(cc.header("3. Network after Split of Quant Nodes"))

@@ -46,4 +46,4 @@ def deepQuantTestLinear() -> None:
     torch.manual_seed(42)
     model = QuantLinearNet().eval()
     sampleInput = torch.randn(1, 4, 16)
-    brevitasToTrueQuant(model, sampleInput, debug=True)
+    brevitasToTrueQuant(model, sampleInput, debug=True, checkEquivalence=True)

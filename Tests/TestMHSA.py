@@ -56,4 +56,4 @@ def deepQuantTestMHSA() -> None:
     torch.manual_seed(42)
     model = QuantMHSANet(embedDim=16, numHeads=4).eval()
     sampleInput = torch.randn(10, 2, 16)
-    brevitasToTrueQuant(model, sampleInput)
+    brevitasToTrueQuant(model, sampleInput, checkEquivalence=True)
