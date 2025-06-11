@@ -16,6 +16,30 @@ import torch.nn as nn
 from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
 
 
+def create_deterministic_session():
+    """
+    Create ONNX Runtime session with deterministic settings for exact reproducibility.
+    """
+    options = ort.SessionOptions()
+
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+
+    options.use_deterministic_compute = True
+    options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+
+    options.intra_op_num_threads = 1
+    options.inter_op_num_threads = 1
+
+    options.enable_cpu_mem_arena = False
+    options.enable_mem_pattern = False
+    options.enable_mem_reuse = False
+
+    options.log_severity_level = 3
+    options.enable_profiling = False
+
+    return options
+
+
 def exportToOnnx(
     model: nn.Module,
     exampleInput: torch.Tensor,
@@ -50,7 +74,11 @@ def exportToOnnx(
         print()
         print(cc.success(f"Input data saved to {inputFile}"))
 
-    ortSession = ort.InferenceSession(onnxFile)
+    options = create_deterministic_session()
+    # ortSession = ort.InferenceSession(onnxFile)
+    ortSession = ort.InferenceSession(
+        onnxFile, sess_options=options, providers=["CPUExecutionProvider"]
+    )
     ortInputs = {"input": exampleInput.cpu().numpy()}
     ortOutput = ortSession.run(None, ortInputs)[0]
 

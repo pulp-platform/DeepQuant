@@ -123,24 +123,7 @@ def prepareCCT(model) -> nn.Module:
         ),
     }
 
-    quantActMap = {
-        nn.ReLU: (
-            qnn.QuantReLU,
-            {
-                "act_quant": Uint8ActPerTensorFloat,
-                "return_quant_tensor": True,
-                "bit_width": 8,
-            },
-        ),
-        nn.GELU: (
-            qnn.QuantReLU,
-            {
-                "act_quant": Uint8ActPerTensorFloat,
-                "return_quant_tensor": True,
-                "bit_width": 8,
-            },
-        ),
-    }
+    quantActMap = {}
 
     quantIdentityMap = {
         "signed": (
