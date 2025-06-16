@@ -99,11 +99,11 @@ class TensorRecorder:
     def _topDifferences(
         self, ref: torch.Tensor, cur: torch.Tensor, diffMask: torch.Tensor
     ) -> List[str]:
-        maskFlat = diffMask.view(-1).bool()
+        maskFlat = diffMask.reshape(-1).bool()
         if maskFlat.sum() == 0:
             return []
 
-        absDiff = (ref - cur).abs().view(-1)[maskFlat]
+        absDiff = (ref - cur).abs().reshape(-1)[maskFlat]
         unique, counts = torch.unique(absDiff, return_counts=True)
         order = counts.argsort(descending=True)
 
@@ -113,8 +113,8 @@ class TensorRecorder:
             count = counts[idx].item()
             sampleIndex = (absDiff == delta).nonzero(as_tuple=False)[0].item()
             globalIndex = maskFlat.nonzero(as_tuple=False)[sampleIndex].item()
-            beforeValue = ref.view(-1)[globalIndex].item()
-            afterValue = cur.view(-1)[globalIndex].item()
+            beforeValue = ref.reshape(-1)[globalIndex].item()
+            afterValue = cur.reshape(-1)[globalIndex].item()
 
             lines.append(
                 f"    · Δ={delta:.6f}  ({count} values) e.g. idx {globalIndex}: "
