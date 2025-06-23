@@ -296,7 +296,7 @@ def deepQuantTestCCT():
     # FBRANCASI: Load original floating point model
     originalModel = cct_2_3x2_32()
     checkpointPath = "./Tests/Data/checkpoint_epoch_200_cct2_cifar10.pth"
-    checkpoint = torch.load(checkpointPath, map_location="cpu")
+    checkpoint = torch.load(checkpointPath, map_location="cpu", weights_only=False)
     originalModel.load_state_dict(checkpoint["model_state_dict"])
     originalModel = originalModel.eval().to(device)
     print("Original CCT-2 loaded from checkpoint.")
@@ -316,7 +316,7 @@ def deepQuantTestCCT():
     FQAccuracy = evaluateModel(FQModel, valLoader, device, "FQ CCT-2")
 
     sampleInput = torch.randn(1, 3, 32, 32).to("cpu")
-    
+
     # FBRANCASI: Override the injectCustomForwards function in the module before DeepQuant.Export imports it
     import DeepQuant.Pipeline.Injection as injection_module
 
