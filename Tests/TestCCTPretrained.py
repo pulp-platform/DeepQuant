@@ -8,7 +8,10 @@ import brevitas.nn as qnn
 import pytest
 import torch
 import torch.nn as nn
+import torchvision
+import torchvision.transforms as transforms
 from brevitas.fx.brevitas_tracer import symbolic_trace
+from brevitas.graph.calibrate import calibration_mode
 from brevitas.graph.quantize import preprocess_for_quantize, quantize
 from brevitas.graph.utils import replace_all_uses_except
 from brevitas.quant import (
@@ -17,11 +20,57 @@ from brevitas.quant import (
     Int32Bias,
     Uint8ActPerTensorFloat,
 )
+from torch.utils.data import DataLoader, Subset
+from tqdm import tqdm
 
+from DeepQuant import brevitasToTrueQuant
 from Tests.Models.CCT import cct_2_3x2_32
 
 
-def prepareCCT(model) -> nn.Module:
+def evaluateModel(model, dataLoader, evalDevice, name="Model"):
+    model.eval()
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for inputs, targets in tqdm(dataLoader, desc=f"Evaluating {name}"):
+            isTQ = "TQ" in name
+
+            if isTQ:
+                # FBRANCASI: Process different batches for the TQ model
+                for i in range(inputs.size(0)):
+                    singleInput = inputs[i : i + 1].to(evalDevice)
+                    singleOutput = model(singleInput)
+
+                    _, predicted = singleOutput.max(1)
+                    if predicted.item() == targets[i].item():
+                        correct += 1
+
+                    total += 1
+            else:
+                inputs = inputs.to(evalDevice)
+                targets = targets.to(evalDevice)
+                output = model(inputs)
+
+                _, predicted = output.max(1)
+                correct += (predicted == targets).sum().item()
+                total += targets.size(0)
+
+    accuracy = 100.0 * correct / total
+    print(f"{name} - Accuracy: {accuracy:.2f}% ({correct}/{total})")
+    return accuracy
+
+
+def calibrateModel(model, calibLoader):
+    model.eval()
+    with torch.no_grad(), calibration_mode(model):
+        for inputs, _ in tqdm(calibLoader, desc="Calibrating model"):
+            inputs = inputs.to("cpu")
+            model(inputs)
+    print("Calibration completed.")
+
+
+def prepareFQCCT(model) -> nn.Module:
     """
     Prepare a quantized CCT model for testing with export support.
     """
@@ -166,21 +215,75 @@ def prepareCCT(model) -> nn.Module:
 @pytest.mark.ModelTests
 def deepQuantTestCCT():
     torch.manual_seed(42)
-    sampleInput = torch.randn(1, 3, 32, 32)
 
-    model = cct_2_3x2_32()  # FBRANCASI: 2 encoder layers, kernel dim 3, 2 convs, 32x32
-    model.eval()
+    # FBRANCASI: Setup CIFAR-10 dataset
+    transformsVal = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ]
+    )
 
-    print(model)
+    dataset = torchvision.datasets.CIFAR10(
+        root="./data", train=False, download=True, transform=transformsVal
+    )
 
-    quantizedModel = prepareCCT(model)
+    DATASET_LIMIT = 256
+    dataset = Subset(dataset, list(range(DATASET_LIMIT)))
+    print(f"Validation dataset size set to {len(dataset)} images.")
 
-    print(f"\nTesting the Quantized Model with input shape: {sampleInput.shape}")
-    with torch.no_grad():
-        output = quantizedModel(sampleInput)
-        print(f"Output shape: {output.shape}")
-        print(f"Output range: [{output.min().item():.3f}, {output.max().item():.3f}]")
+    calibLoader = DataLoader(
+        Subset(dataset, list(range(128))), batch_size=32, shuffle=False, pin_memory=True
+    )
+    valLoader = DataLoader(dataset, batch_size=32, shuffle=False, pin_memory=True)
 
-    from DeepQuant import brevitasToTrueQuant
+    # FBRANCASI: Device setup
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("mps" if torch.backends.mps.is_available() else device)
+    print(f"Using device: {device}")
 
-    brevitasToTrueQuant(quantizedModel, sampleInput, debug=True)
+    # FBRANCASI: Load original floating point model
+    originalModel = cct_2_3x2_32()
+    checkpointPath = "/Users/federicobrancasi/Documents/DeepQuant/Tests/Data/checkpoint_epoch_200_cct2_cifar10.pth"
+    checkpoint = torch.load(checkpointPath, map_location="cpu")
+    originalModel.load_state_dict(checkpoint["model_state_dict"])
+    originalModel = originalModel.eval().to(device)
+    print("Original CCT-2 loaded from checkpoint.")
+
+    print("Evaluating original model...")
+    originalAccuracy = evaluateModel(originalModel, valLoader, device, "Original CCT-2")
+
+    print("Preparing and quantizing CCT-2...")
+    FQModel = prepareFQCCT(originalModel.to("cpu"))
+
+    print("Calibrating FQ model...")
+    calibrateModel(FQModel, calibLoader)
+
+    print("Evaluating FQ model...")
+    # FBRANCASI: Use CPU for brevitas models
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    FQAccuracy = evaluateModel(FQModel, valLoader, device, "FQ CCT-2")
+
+    sampleInput = torch.randn(1, 3, 32, 32).to("cpu")
+    TQModel = brevitasToTrueQuant(FQModel, sampleInput, debug=True)
+
+    numParameters = sum(p.numel() for p in TQModel.parameters())
+    print(f"Number of parameters: {numParameters:,}")
+
+    print("Evaluating TQ model...")
+    TQAccuracy = evaluateModel(TQModel, valLoader, device, "TQ CCT-2")
+
+    print("\nComparison Summary:")
+    print(f"{'Model':<25} {'Accuracy':<25}")
+    print("-" * 50)
+    print(f"{'Original CCT-2':<25} {originalAccuracy:<24.2f}")
+    print(f"{'FQ CCT-2':<25} {FQAccuracy:<24.2f}")
+    print(f"{'TQ CCT-2':<25} {TQAccuracy:<24.2f}")
+    print(f"{'FQ Drop':<25} {originalAccuracy - FQAccuracy:<24.2f}")
+    print(f"{'TQ Drop':<25} {originalAccuracy - TQAccuracy:<24.2f}")
+
+    if abs(FQAccuracy - TQAccuracy) > 5.0:
+        print(
+            f"Warning: Large accuracy drop between FQ and TQ models. "
+            f"Difference: {abs(FQAccuracy - TQAccuracy):.2f}%"
+        )
