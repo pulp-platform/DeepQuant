@@ -160,7 +160,7 @@ def prepareCCT(model) -> nn.Module:
                 "bias": False,
                 "return_quant_tensor": True,
                 "output_bit_width": 8,
-                "weight_bit_width": 4,
+                "weight_bit_width": 8,
             },
         ),
         nn.Linear: (
@@ -172,7 +172,7 @@ def prepareCCT(model) -> nn.Module:
                 "bias_quant": Int32Bias,
                 "return_quant_tensor": True,
                 "output_bit_width": 8,
-                "weight_bit_width": 4,
+                "weight_bit_width": 8,
             },
         ),
     }
