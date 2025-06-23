@@ -4,6 +4,8 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
+from typing import Tuple
+
 import brevitas.nn as qnn
 import pytest
 import torch
@@ -18,7 +20,59 @@ from brevitas.quant import (
     Uint8ActPerTensorFloat,
 )
 
+from DeepQuant.Transforms.Executor import TransformationExecutor
+from DeepQuant.Transforms.Transformations import LinearTransformation, MHATransformation
+from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
+from DeepQuant.Utils.CustomTracer import QuantTracer, customBrevitasTrace
+from DeepQuant.Utils.GraphPrinter import GraphModulePrinter
 from Tests.Models.CCT import cct_2_3x2_32
+
+
+def injectCustomForwards(
+    model: nn.Module,
+    exampleInput: torch.Tensor,
+    referenceOutput: torch.Tensor,
+    debug: bool = False,
+    checkEquivalence: bool = False,
+) -> Tuple[nn.Module, torch.Tensor]:
+    """Custom inject function for CCT that excludes ActivationTransformation."""
+    printer = GraphModulePrinter()
+
+    tracer = QuantTracer(debug=debug)
+
+    transformations = [
+        MHATransformation(),
+        LinearTransformation(),
+        # ActivationTransformation(),  # FBRANCASI: Commented out for CCT compatibility
+    ]
+
+    executor = TransformationExecutor(transformations, debug=debug, tracer=tracer)
+    transformedModel = executor.execute(model, exampleInput)
+
+    fxModel = customBrevitasTrace(
+        root=transformedModel,
+        tracer=tracer,
+    )
+    fxModel.recompile()
+
+    with torch.no_grad():
+        output = fxModel(exampleInput)
+
+    if checkEquivalence:
+        if torch.allclose(referenceOutput, output, atol=1e-5):
+            if debug:
+                print(cc.success("Injection of New Modules: output is consistent"))
+        else:
+            raise RuntimeError(
+                cc.error("Injection of New Modules changed the output significantly")
+            )
+
+    if debug:
+        print(cc.header("2. Network after Injection of New Modules"))
+        printer.printTabular(fxModel)
+        print()
+
+    return fxModel, output
 
 
 def prepareCCT(model) -> nn.Module:
@@ -84,8 +138,6 @@ def prepareCCT(model) -> nn.Module:
 
         quant_name = f"{node.name}_reshape_fix"
         model.add_module(quant_name, quant_identity)
-        # mark this QuantIdentity as “reshape fix”
-        quant_identity._is_reshape_fix = True
 
         with model.graph.inserting_after(node):
             quant_node = model.graph.call_module(quant_name, args=(node,))
@@ -181,6 +233,27 @@ def deepQuantTestCCT():
         print(f"Output shape: {output.shape}")
         print(f"Output range: [{output.min().item():.3f}, {output.max().item():.3f}]")
 
-    from DeepQuant import brevitasToTrueQuant
+    # FBRANCASI: Override the injectCustomForwards function in the module before DeepQuant.Export imports it
+    import DeepQuant.Pipeline.Injection as injection_module
 
-    brevitasToTrueQuant(quantizedModel, sampleInput, debug=True)
+    # FBRANCASI: Store original function
+    original_inject = injection_module.injectCustomForwards
+
+    # FBRANCASI: Override with our custom function
+    injection_module.injectCustomForwards = injectCustomForwards
+
+    # FBRANCASI: Force reload of Export module to pick up the override
+    import importlib
+
+    import DeepQuant.Export
+
+    importlib.reload(DeepQuant.Export)
+
+    try:
+        from DeepQuant.Export import brevitasToTrueQuant
+
+        brevitasToTrueQuant(quantizedModel, sampleInput, debug=True)
+    finally:
+        # FBRANCASI: Restore original function and reload Export module again
+        injection_module.injectCustomForwards = original_inject
+        importlib.reload(DeepQuant.Export)
