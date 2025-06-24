@@ -58,7 +58,7 @@ def exportToOnnx(
         model,
         args=exampleInput,
         f=onnxFile,
-        opset_version=13,
+        opset_version=17,
         keep_initializers_as_inputs=False,  # FBRANCASI: Prevent warnings
         do_constant_folding=True,
         input_names=["input"],
