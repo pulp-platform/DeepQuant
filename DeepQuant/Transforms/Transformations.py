@@ -14,8 +14,11 @@ from brevitas.nn.quant_layer import (
 from brevitas.nn.quant_mha import QuantMultiheadAttention
 
 from DeepQuant.CustomForwards.Activations import WrapperActivation, activationForward
+from DeepQuant.CustomForwards.MultiHeadAttention import (
+    mhaForwardBatchFirst,
+    mhaForwardSeqFirst,
+)
 from DeepQuant.CustomForwards.WBIOL import WBIOLForward, WrapperWBIOL
-from DeepQuant.CustomForwards.MultiHeadAttention import mhaForward
 from DeepQuant.Transforms.Base import TransformationPass
 from DeepQuant.Utils.CustomTracer import QuantTracer
 
@@ -82,7 +85,11 @@ class MHATransformation(TransformationPass):
         self, module: nn.Module, tracer: Optional[QuantTracer] = None
     ) -> None:
         """Inject custom forward for multi-head attention layers."""
-        module.forward = mhaForward.__get__(module)
+        # Select the appropriate forward function based on batch_first
+        if module.batch_first:
+            module.forward = mhaForwardBatchFirst.__get__(module)
+        else:
+            module.forward = mhaForwardSeqFirst.__get__(module)
 
         if tracer:
             tracer.registerNonLeafModule(QuantMultiheadAttention)

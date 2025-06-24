@@ -51,7 +51,9 @@ def injectCustomForwards(
         output = fxModel(exampleInput)
 
     if checkEquivalence:
-        if torch.allclose(referenceOutput, output, atol=1e-5):
+        # Handle case where output might be a tuple (e.g., from MHA)
+        outputToCompare = output[0] if isinstance(output, tuple) else output
+        if torch.allclose(referenceOutput, outputToCompare, atol=1e-5):
             if debug:
                 print(cc.success("Injection of New Modules: output is consistent"))
         else:

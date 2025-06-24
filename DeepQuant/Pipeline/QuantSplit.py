@@ -46,7 +46,10 @@ def splitQuantNodes(
         output = splitModel(exampleInput)
 
     if checkEquivalence:
-        if torch.allclose(referenceOutput, output, atol=1e-5):
+        # FBRANCASI: Handle case where output/referenceOutput might be tuples
+        refToCompare = referenceOutput[0] if isinstance(referenceOutput, tuple) else referenceOutput
+        outToCompare = output[0] if isinstance(output, tuple) else output
+        if torch.allclose(refToCompare, outToCompare, atol=1e-5):
             if debug:
                 print(cc.success("Split of Quant Nodes: output is consistent"))
         else:

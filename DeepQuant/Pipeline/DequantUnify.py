@@ -80,7 +80,10 @@ def mergeDequants(
 
     # FBRANCASI: Check output equivalence with a warning instead of error
     if checkEquivalence:
-        if not torch.allclose(referenceOutput, output, atol=1e-5) and debug:
+        # FBRANCASI: Handle case where output/referenceOutput might be tuples
+        refToCompare = referenceOutput[0] if isinstance(referenceOutput, tuple) else referenceOutput
+        outToCompare = output[0] if isinstance(output, tuple) else output
+        if not torch.allclose(refToCompare, outToCompare, atol=1e-5) and debug:
             print(
                 cc.warning(
                     "Modification of Dequant Nodes may have changed the output slightly"

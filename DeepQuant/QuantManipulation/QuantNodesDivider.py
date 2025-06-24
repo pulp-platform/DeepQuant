@@ -110,6 +110,18 @@ def convertQuantOperations(
                         newCatArgs[0] = updatedTensors
                         userNode.args = tuple(newCatArgs)
                         usersUpdated = True
+                elif (
+                    userNode.op == "call_function"
+                    and userNode.target == getattr
+                    and len(userNode.args) >= 2
+                    and userNode.args[0] is node
+                    and userNode.args[1] == "value"
+                ):
+                    # FBRANCASI: Special handling for .value access on dequant output
+                    # Replace getattr(dequant_node, 'value') with just dequant_node
+                    userNode.replace_all_uses_with(dequantNode)
+                    nodesToRemove.append(userNode)
+                    usersUpdated = True
                 else:
                     # FBRANCASI: Standard node reference replacement
                     newArgs = []
