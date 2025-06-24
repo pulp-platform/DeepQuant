@@ -1,3 +1,9 @@
+# Copyright 2025 ETH Zurich and University of Bologna.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Federico Brancasi <fbrancasi@ethz.ch>
+
 import brevitas.nn as qnn
 import pytest
 import torch
@@ -113,12 +119,21 @@ def prepare_vit_b_32(model: nn.Module) -> nn.Module:
 
 @pytest.mark.ModelTests
 def deepQuantTestViT():
+    torch.manual_seed(42)
+    sampleInput = torch.randn(1, 3, 224, 224)
 
     vit_model = models.vit_b_32(weights=models.ViT_B_32_Weights.IMAGENET1K_V1)
-
     vit_model.eval()
+
+    print(f"\nTesting ViT-B/32 model with input shape: {sampleInput.shape}")
 
     quantized_vit = prepare_vit_b_32(vit_model)
 
-    sampleInput = torch.randn(1, 3, 224, 224)
+    with torch.no_grad():
+        output = quantized_vit(sampleInput)
+        if isinstance(output, tuple):
+            output = output[0]
+        print(f"Output shape: {output.shape}")
+        print(f"Output range: [{output.min().item():.3f}, {output.max().item():.3f}]")
+
     brevitasToTrueQuant(quantized_vit, sampleInput, debug=True, checkEquivalence=False)

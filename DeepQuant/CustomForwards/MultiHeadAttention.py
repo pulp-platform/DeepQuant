@@ -110,7 +110,6 @@ def mhaForwardBatchFirst(
     attn_output = _mhaForwardImpl(
         self, query, key, value, need_transpose_in=True, need_transpose_out=True
     )
-    # PyTorch always returns a tuple, even when need_weights=False
     return (attn_output, None)
 
 
@@ -126,7 +125,6 @@ def mhaForwardSeqFirst(
     attn_output = _mhaForwardImpl(
         self, query, key, value, need_transpose_in=False, need_transpose_out=False
     )
-    # PyTorch always returns a tuple, even when need_weights=False
     return (attn_output, None)
 
 
