@@ -82,7 +82,8 @@ def injectCustomForwards(
 
 def evaluateModel(model, dataLoader, evalDevice, name="Model"):
     model.eval()
-    correct = 0
+    correctTop1 = 0
+    correctTop5 = 0
     total = 0
 
     with torch.no_grad():
@@ -97,7 +98,11 @@ def evaluateModel(model, dataLoader, evalDevice, name="Model"):
 
                     _, predicted = singleOutput.max(1)
                     if predicted.item() == targets[i].item():
-                        correct += 1
+                        correctTop1 += 1
+
+                    _, top5Pred = singleOutput.topk(5, dim=1, largest=True, sorted=True)
+                    if targets[i].item() in top5Pred[0].cpu().numpy():
+                        correctTop5 += 1
 
                     total += 1
             else:
@@ -106,12 +111,24 @@ def evaluateModel(model, dataLoader, evalDevice, name="Model"):
                 output = model(inputs)
 
                 _, predicted = output.max(1)
-                correct += (predicted == targets).sum().item()
+                correctTop1 += (predicted == targets).sum().item()
+
+                _, top5Pred = output.topk(5, dim=1, largest=True, sorted=True)
+                for i in range(targets.size(0)):
+                    if targets[i] in top5Pred[i]:
+                        correctTop5 += 1
+
                 total += targets.size(0)
 
-    accuracy = 100.0 * correct / total
-    print(f"{name} - Accuracy: {accuracy:.2f}% ({correct}/{total})")
-    return accuracy
+    top1Accuracy = 100.0 * correctTop1 / total
+    top5Accuracy = 100.0 * correctTop5 / total
+
+    print(
+        f"{name} - Top-1 Accuracy: {top1Accuracy:.2f}% ({correctTop1}/{total}), "
+        f"Top-5 Accuracy: {top5Accuracy:.2f}%"
+    )
+
+    return top1Accuracy, top5Accuracy
 
 
 def calibrateModel(model, calibLoader):
@@ -302,7 +319,7 @@ def deepQuantTestCCT():
     print("Original CCT-2 loaded from checkpoint.")
 
     print("Evaluating original model...")
-    originalAccuracy = evaluateModel(originalModel, valLoader, device, "Original CCT-2")
+    originalTop1, originalTop5 = evaluateModel(originalModel, valLoader, device, "Original CCT-2")
 
     print("Preparing and quantizing CCT-2...")
     FQModel = prepareFQCCT(originalModel.to("cpu"))
@@ -313,7 +330,7 @@ def deepQuantTestCCT():
     print("Evaluating FQ model...")
     # FBRANCASI: Use CPU for brevitas models
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    FQAccuracy = evaluateModel(FQModel, valLoader, device, "FQ CCT-2")
+    FQTop1, FQTop5 = evaluateModel(FQModel, valLoader, device, "FQ CCT-2")
 
     sampleInput = torch.randn(1, 3, 32, 32).to("cpu")
 
@@ -346,19 +363,19 @@ def deepQuantTestCCT():
     print(f"Number of parameters: {numParameters:,}")
 
     print("Evaluating TQ model...")
-    TQAccuracy = evaluateModel(TQModel, valLoader, device, "TQ CCT-2")
+    TQTop1, TQTop5 = evaluateModel(TQModel, valLoader, device, "TQ CCT-2")
 
     print("\nComparison Summary:")
-    print(f"{'Model':<25} {'Accuracy':<25}")
-    print("-" * 50)
-    print(f"{'Original CCT-2':<25} {originalAccuracy:<24.2f}")
-    print(f"{'FQ CCT-2':<25} {FQAccuracy:<24.2f}")
-    print(f"{'TQ CCT-2':<25} {TQAccuracy:<24.2f}")
-    print(f"{'FQ Drop':<25} {originalAccuracy - FQAccuracy:<24.2f}")
-    print(f"{'TQ Drop':<25} {originalAccuracy - TQAccuracy:<24.2f}")
+    print(f"{'Model':<25} {'Top-1 Accuracy':<25} {'Top-5 Accuracy':<25}")
+    print("-" * 75)
+    print(f"{'Original CCT-2':<25} {originalTop1:<24.2f} {originalTop5:<24.2f}")
+    print(f"{'FQ CCT-2':<25} {FQTop1:<24.2f} {FQTop5:<24.2f}")
+    print(f"{'TQ CCT-2':<25} {TQTop1:<24.2f} {TQTop5:<24.2f}")
+    print(f"{'FQ Drop':<25} {originalTop1 - FQTop1:<24.2f} {originalTop5 - FQTop5:<24.2f}")
+    print(f"{'TQ Drop':<25} {originalTop1 - TQTop1:<24.2f} {originalTop5 - TQTop5:<24.2f}")
 
-    if abs(FQAccuracy - TQAccuracy) > 5.0:
+    if abs(FQTop1 - TQTop1) > 5.0:
         print(
             f"Warning: Large accuracy drop between FQ and TQ models. "
-            f"Difference: {abs(FQAccuracy - TQAccuracy):.2f}%"
+            f"Difference: {abs(FQTop1 - TQTop1):.2f}%"
         )
