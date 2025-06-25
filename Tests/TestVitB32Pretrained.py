@@ -149,16 +149,7 @@ def prepareFQVitB32():
         ),
     }
 
-    quantActMap = {
-        nn.GELU: (
-            qnn.QuantReLU,  # FBRANCASI: Approximating GELU with QuantReLU
-            {
-                "act_quant": Uint8ActPerTensorFloat,
-                "return_quant_tensor": True,
-                "bit_width": 8,
-            },
-        ),
-    }
+    quantActMap = {}
 
     quantIdentityMap = {
         "signed": (
