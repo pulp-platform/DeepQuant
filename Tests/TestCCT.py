@@ -25,7 +25,8 @@ from DeepQuant.Transforms.Transformations import LinearTransformation, MHATransf
 from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
 from DeepQuant.Utils.CustomTracer import QuantTracer, customBrevitasTrace
 from DeepQuant.Utils.GraphPrinter import GraphModulePrinter
-from Tests.Models.CCT import cct_2_3x2_32
+# from Tests.Models.CCT import cct_2_3x2_32
+from Tests.Models.RunCCT.CCT.CCT.cct import cct_2_3x2_32
 
 
 def injectCustomForwards(
@@ -163,18 +164,18 @@ def prepareCCT(model) -> nn.Module:
                 "weight_bit_width": 8,
             },
         ),
-        nn.Linear: (
-            qnn.QuantLinear,
-            {
-                "input_quant": Int8ActPerTensorFloat,
-                "weight_quant": Int8WeightPerTensorFloat,
-                "output_quant": Int8ActPerTensorFloat,
-                "bias_quant": Int32Bias,
-                "return_quant_tensor": True,
-                "output_bit_width": 8,
-                "weight_bit_width": 8,
-            },
-        ),
+        # nn.Linear: (
+        #     qnn.QuantLinear,
+        #     {
+        #         "input_quant": Int8ActPerTensorFloat,
+        #         "weight_quant": Int8WeightPerTensorFloat,
+        #         "output_quant": Int8ActPerTensorFloat,
+        #         "bias_quant": Int32Bias,
+        #         "return_quant_tensor": True,
+        #         "output_bit_width": 8,
+        #         "weight_bit_width": 8,
+        #     },
+        # ),
     }
 
     quantActMap = {}
