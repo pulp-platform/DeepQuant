@@ -25,8 +25,7 @@ from DeepQuant.Transforms.Transformations import LinearTransformation, MHATransf
 from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
 from DeepQuant.Utils.CustomTracer import QuantTracer, customBrevitasTrace
 from DeepQuant.Utils.GraphPrinter import GraphModulePrinter
-# from Tests.Models.CCT import cct_2_3x2_32
-from Tests.Models.RunCCT.CCT.CCT.cct import cct_2_3x2_32
+from Tests.Models.CCT.CCT.cct import cct_2_3x2_32
 
 
 def injectCustomForwards(
@@ -88,6 +87,7 @@ def prepareCCT(model) -> nn.Module:
 
     transpose_fixes = []
     qkv_fixes = []
+    matmul_fixes = []
 
     # FBRANCASI: Fix 1, Find transpose -> add patterns
     for node in model.graph.nodes:
@@ -108,6 +108,29 @@ def prepareCCT(model) -> nn.Module:
                 if user.op == "call_method" and user.target == "reshape":
                     qkv_fixes.append((node, user))
                     break
+
+    # FBRANCASI: Fix 3, Find matmul operations that need dequantization
+    for node in model.graph.nodes:
+        if node.op == "call_function" and node.target == torch.matmul:
+            matmul_fixes.append(node)
+        elif node.op == "call_method" and node.target == "matmul":
+            matmul_fixes.append(node)
+        elif (
+            node.op == "call_function"
+            and hasattr(node.target, "__name__")
+            and node.target.__name__ == "matmul"
+        ):
+            matmul_fixes.append(node)
+        elif hasattr(node, "name") and "matmul" in node.name:
+            matmul_fixes.append(node)
+        elif (
+            node.op == "call_function"
+            and hasattr(node.target, "__module__")
+            and node.target.__module__ == "operator"
+            and hasattr(node.target, "__name__")
+            and node.target.__name__ == "matmul"
+        ):
+            matmul_fixes.append(node)
 
     # FBRANCASI: Apply transpose fixes
     print(f"\nApplying {len(transpose_fixes)} transpose fixes...")
@@ -145,10 +168,79 @@ def prepareCCT(model) -> nn.Module:
 
         reshape_user.update_arg(0, quant_node)
 
+    # FBRANCASI: Apply matmul fixes
+    print(f"\nApplying {len(matmul_fixes)} matmul fixes...")
+    for node in matmul_fixes:
+        print(
+            f"  Fixing matmul: {node.name}, args: {[arg.name if hasattr(arg, 'name') else str(arg) for arg in node.args]}"
+        )
+
+        # FBRANCASI: Add dequantization before both inputs of matmul
+        for i, arg in enumerate(node.args):
+            if isinstance(arg, torch.fx.Node):
+                print(f"    Processing arg {i}: {arg.name}")
+                dequant_identity = qnn.QuantIdentity(
+                    act_quant=Int8ActPerTensorFloat,
+                    return_quant_tensor=False,  # FBRANCASI: Return regular tensor for matmul
+                )
+
+                dequant_name = f"{arg.name}_matmul_dequant_{i}"
+                model.add_module(dequant_name, dequant_identity)
+
+                with model.graph.inserting_before(node):
+                    dequant_node = model.graph.call_module(dequant_name, args=(arg,))
+
+                # Update the matmul argument
+                node.update_arg(i, dequant_node)
+                print(f"    Updated arg {i} to: {dequant_node.name}")
+
     model.recompile()
     model.graph.lint()
 
     print("\n=== GRAPH MODIFICATION COMPLETE ===")
+
+    # Debug: Print graph structure to understand the flow
+    print("\n=== DEBUG: Graph structure after fixes ===")
+    for node in model.graph.nodes:
+        if (
+            "matmul" in node.name
+            or (node.op == "call_method" and node.target == "transpose")
+            or "permute" in node.name
+        ):
+            print(
+                f"Node: {node.name}, op: {node.op}, target: {node.target}, args: {[arg.name if hasattr(arg, 'name') else str(arg) for arg in node.args]}"
+            )
+            # Print users of permute and transpose nodes
+            if "permute" in node.name or (
+                node.op == "call_method" and node.target == "transpose"
+            ):
+                print(f"  Users: {[user.name for user in node.users]}")
+
+    # FBRANCASI: First pass - identify which Linear layers feed into matmul through permute/transpose
+    linear_to_matmul = set()
+    for node in model.graph.nodes:
+        if hasattr(node, "name") and "matmul" in node.name:
+            # Trace back through the args to find Linear layers
+            for arg in node.args:
+                if isinstance(arg, torch.fx.Node):
+                    # Check if this path leads back to a linear layer
+                    current = arg
+                    visited = set()
+                    while current and current not in visited:
+                        visited.add(current)
+                        if current.op == "call_module" and any(
+                            proj in current.target
+                            for proj in ["q_proj", "k_proj", "v_proj"]
+                        ):
+                            linear_to_matmul.add(current.target)
+                            break
+                        # Trace back through the first argument
+                        if current.args and isinstance(current.args[0], torch.fx.Node):
+                            current = current.args[0]
+                        else:
+                            break
+
+    print(f"\nLinear layers that feed into matmul: {linear_to_matmul}")
 
     computeLayerMap = {
         nn.Conv2d: (
@@ -164,18 +256,18 @@ def prepareCCT(model) -> nn.Module:
                 "weight_bit_width": 8,
             },
         ),
-        # nn.Linear: (
-        #     qnn.QuantLinear,
-        #     {
-        #         "input_quant": Int8ActPerTensorFloat,
-        #         "weight_quant": Int8WeightPerTensorFloat,
-        #         "output_quant": Int8ActPerTensorFloat,
-        #         "bias_quant": Int32Bias,
-        #         "return_quant_tensor": True,
-        #         "output_bit_width": 8,
-        #         "weight_bit_width": 8,
-        #     },
-        # ),
+        nn.Linear: (
+            qnn.QuantLinear,
+            {
+                "input_quant": Int8ActPerTensorFloat,
+                "weight_quant": Int8WeightPerTensorFloat,
+                "output_quant": Int8ActPerTensorFloat,
+                "bias_quant": Int32Bias,
+                "return_quant_tensor": True,  # FBRANCASI: We'll handle this specially for q,k,v projections
+                "output_bit_width": 8,
+                "weight_bit_width": 8,
+            },
+        ),
     }
 
     quantActMap = {}
@@ -212,6 +304,97 @@ def prepareCCT(model) -> nn.Module:
         quant_act_map=quantActMap,
         quant_identity_map=quantIdentityMap,
     )
+
+    # FBRANCASI: Apply post-quantization fixes for matmul operations
+    print("\n=== POST-QUANTIZATION FIXES ===")
+
+    nodes_needing_dequant = set()
+
+    node_map = {node.name: node for node in quantizedModel.graph.nodes}
+
+    import operator
+
+    for node in quantizedModel.graph.nodes:
+        # FBRANCASI: Look for @ operator (represented as call_function with operator.matmul)
+        is_matmul = False
+        if node.op == "call_function":
+            if node.target == operator.matmul:
+                is_matmul = True
+            elif node.target == torch.matmul:
+                is_matmul = True
+            elif hasattr(node.target, "__name__") and node.target.__name__ == "matmul":
+                is_matmul = True
+
+        if is_matmul:
+            print(f"\nFound matmul node: {node.name}")
+            print(f"  Target: {node.target}")
+            print(f"  Args: {node.args}")
+            print(f"  Arg types: {[type(arg) for arg in node.args]}")
+
+            # FBRANCASI: Mark both arguments as needing dequantization
+            for i, arg in enumerate(node.args):
+                print(f"    Checking arg {i}: type={type(arg)}")
+                if hasattr(arg, "name") and hasattr(arg, "op"):
+                    nodes_needing_dequant.add(arg)
+                    print(f"    Added node to dequant: {arg.name}")
+                else:
+                    print(f"    Skipped arg {i}: {arg}")
+
+    print(f"\nNodes needing dequantization: {[n.name for n in nodes_needing_dequant]}")
+
+    # FBRANCASI: Insert dequantization for each node that feeds into matmul
+    dequant_nodes = {}
+    for node in nodes_needing_dequant:
+        print(f"\nAdding dequantization after node: {node.name}")
+
+        dequant_identity = qnn.QuantIdentity(
+            act_quant=Int8ActPerTensorFloat,
+            return_quant_tensor=False,  # FBRANCASI: Return regular tensor for matmul
+        )
+
+        dequant_name = f"{node.name}_dequant_for_matmul"
+        quantizedModel.add_module(dequant_name, dequant_identity)
+
+        with quantizedModel.graph.inserting_after(node):
+            dequant_node = quantizedModel.graph.call_module(dequant_name, args=(node,))
+
+        dequant_nodes[node] = dequant_node
+
+        for user in list(node.users):
+            is_matmul_user = False
+            if user.op == "call_function":
+                if user.target == operator.matmul or user.target == torch.matmul:
+                    is_matmul_user = True
+                elif (
+                    hasattr(user.target, "__name__")
+                    and user.target.__name__ == "matmul"
+                ):
+                    is_matmul_user = True
+                elif (
+                    hasattr(user.target, "__module__")
+                    and user.target.__module__ == "operator"
+                    and hasattr(user.target, "__name__")
+                    and user.target.__name__ == "matmul"
+                ):
+                    is_matmul_user = True
+
+            if is_matmul_user:
+                print(f"  Updating matmul {user.name} to use dequantized input")
+                new_args = []
+                for i, arg in enumerate(user.args):
+                    if arg == node:
+                        new_args.append(dequant_node)
+                        print(
+                            f"    Updated arg {i} from {node.name} to {dequant_node.name}"
+                        )
+                    else:
+                        new_args.append(arg)
+                user.args = tuple(new_args)
+
+    quantizedModel.recompile()
+    quantizedModel.graph.lint()
+
+    print("\n=== POST-QUANTIZATION FIXES COMPLETE ===")
 
     return quantizedModel
 
@@ -253,8 +436,25 @@ def deepQuantTestCCT():
     try:
         from DeepQuant.Export import brevitasToTrueQuant
 
+        quantizedModel.eval()
         brevitasToTrueQuant(quantizedModel, sampleInput, debug=True)
     finally:
         # FBRANCASI: Restore original function and reload Export module again
         injection_module.injectCustomForwards = original_inject
         importlib.reload(DeepQuant.Export)
+        importlib.reload(DeepQuant.Export)
+
+    # FBRANCASI: Important note
+    # Right now ONNX is not exporting the graph with GELUs folded and some nodes dont have shapes.
+    #
+    # If you need to use this ONNX in Deeploy (https://github.com/pulp-platform/Deeploy), please run
+    # these commands on the generated network.onnx to fix these problems that can arise in Deeploy:
+    #
+    # > python -m onnxruntime.transformers.optimizer --input Tests/ONNX/network.onnx --output network.onnx
+    #   --model_type vit --num_heads 6 --hidden_size 384 --use_multi_head_attention --disable_bias_gelu
+    #   --disable_bias_skip_layer_norm --disable_skip_layer_norm --use_multi_head_attention --opt_level 0
+    #
+    # > python -m onnxruntime.tools.symbolic_shape_infer --input network.onnx --output network.onnx
+    #
+    # Also, if you have duplicated shared Floor constants in the graph (this will create problems in
+    # Deeploy), you can fix this using the script FixCTT2Graph.py under the Utils folder of DeepQuant

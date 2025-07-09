@@ -30,7 +30,7 @@ from DeepQuant.Transforms.Transformations import LinearTransformation, MHATransf
 from DeepQuant.Utils.ConsoleFormatter import ConsoleColor as cc
 from DeepQuant.Utils.CustomTracer import QuantTracer, customBrevitasTrace
 from DeepQuant.Utils.GraphPrinter import GraphModulePrinter
-from Tests.Models.CCT import cct_2_3x2_32
+from Tests.Models.CCT.CCT.cct import cct_2_3x2_32
 
 
 def injectCustomForwards(
@@ -152,6 +152,7 @@ def prepareFQCCT(model) -> nn.Module:
 
     transpose_fixes = []
     qkv_fixes = []
+    matmul_fixes = []
 
     # FBRANCASI: Fix 1, Find transpose -> add patterns
     for node in model.graph.nodes:
@@ -172,6 +173,15 @@ def prepareFQCCT(model) -> nn.Module:
                 if user.op == "call_method" and user.target == "reshape":
                     qkv_fixes.append((node, user))
                     break
+
+    # FBRANCASI: Fix 3, Find matmul operations that need dequantization (Run version)
+    for node in model.graph.nodes:
+        if node.op == "call_function" and node.target == torch.matmul:
+            matmul_fixes.append(node)
+        elif node.op == "call_method" and node.target == "__matmul__":
+            matmul_fixes.append(node)
+        elif hasattr(node, "target") and str(node.target) == "matmul":
+            matmul_fixes.append(node)
 
     # FBRANCASI: Apply transpose fixes
     print(f"\nApplying {len(transpose_fixes)} transpose fixes...")
@@ -209,8 +219,17 @@ def prepareFQCCT(model) -> nn.Module:
 
         reshape_user.update_arg(0, quant_node)
 
+    # FBRANCASI: Note matmul fixes found for later processing
+    print(f"\nFound {len(matmul_fixes)} matmul operations for post-quantization fixing")
+
     model.recompile()
     model.graph.lint()
+
+    # FBRANCASI: Print graph structure for debugging (Run version)
+    print("\n=== GRAPH STRUCTURE AFTER INITIAL FIXES ===")
+    for node in model.graph.nodes:
+        if node.op != "placeholder" and node.op != "output":
+            print(f"  {node.name}: {node.op} - {node.target}")
 
     print("\n=== GRAPH MODIFICATION COMPLETE ===")
 
@@ -228,6 +247,7 @@ def prepareFQCCT(model) -> nn.Module:
                 "weight_bit_width": 8,
             },
         ),
+        # FBRANCASI: Linear layers ENABLED in Run version
         nn.Linear: (
             qnn.QuantLinear,
             {
@@ -277,6 +297,79 @@ def prepareFQCCT(model) -> nn.Module:
         quant_identity_map=quantIdentityMap,
     )
 
+    # FBRANCASI: Post-quantization matmul dequantization (Run version specific)
+    print("\n=== POST-QUANTIZATION MATMUL FIXES ===")
+
+    # Find all matmul operations using @ operator
+    matmul_nodes = []
+    for node in quantizedModel.graph.nodes:
+        if hasattr(node, "target") and (
+            (hasattr(node.target, "__name__") and node.target.__name__ == "matmul")
+            or str(node.target) == "<built-in function matmul>"
+            or (node.op == "call_function" and node.target == torch.matmul)
+        ):
+            matmul_nodes.append(node)
+            print(f"Found matmul node: {node.name}")
+
+    print(f"\nTotal matmul nodes found: {len(matmul_nodes)}")
+
+    # For each matmul, trace back to find linear layers and insert dequantization
+    for matmul_node in matmul_nodes:
+        print(f"\nProcessing matmul node: {matmul_node.name}")
+
+        # Check both arguments of matmul
+        for arg_idx, arg in enumerate(matmul_node.args):
+            if hasattr(arg, "op"):
+                print(f"  Checking arg {arg_idx}: {arg.name}")
+
+                # Trace back to find if this comes from a linear layer
+                def find_linear_source(node, visited=None):
+                    if visited is None:
+                        visited = set()
+                    if node in visited:
+                        return None
+                    visited.add(node)
+
+                    if node.op == "call_module" and isinstance(
+                        quantizedModel.get_submodule(node.target), qnn.QuantLinear
+                    ):
+                        return node
+
+                    # Check node inputs
+                    for inp in node.all_input_nodes:
+                        result = find_linear_source(inp, visited)
+                        if result:
+                            return result
+                    return None
+
+                linear_source = find_linear_source(arg)
+
+                if linear_source:
+                    print(f"    Found linear source: {linear_source.name}")
+
+                    # Insert dequantization after the argument node
+                    dequant_identity = qnn.QuantIdentity(
+                        act_quant=Int8ActPerTensorFloat,
+                        return_quant_tensor=False,  # Return regular tensor
+                    )
+
+                    dequant_name = f"{arg.name}_matmul_dequant"
+                    quantizedModel.add_module(dequant_name, dequant_identity)
+
+                    with quantizedModel.graph.inserting_after(arg):
+                        dequant_node = quantizedModel.graph.call_module(
+                            dequant_name, args=(arg,)
+                        )
+
+                    # Update matmul to use dequantized input
+                    matmul_node.update_arg(arg_idx, dequant_node)
+                    print(f"    Inserted dequantization: {dequant_name}")
+
+    quantizedModel.recompile()
+    quantizedModel.graph.lint()
+
+    print("\n=== FINAL QUANTIZATION COMPLETE ===")
+
     return quantizedModel
 
 
@@ -314,12 +407,36 @@ def deepQuantTestCCT():
     originalModel = cct_2_3x2_32()
     checkpointPath = "./Tests/Data/checkpoint_epoch_200_cct2_cifar10.pth"
     checkpoint = torch.load(checkpointPath, map_location="cpu", weights_only=False)
-    originalModel.load_state_dict(checkpoint["model_state_dict"])
+
+    # FBRANCASI: Convert state dict from qkv to q_proj, k_proj, v_proj format
+    original_state_dict = checkpoint["model_state_dict"]
+    converted_state_dict = {}
+
+    for key, value in original_state_dict.items():
+        if "qkv.weight" in key:
+            # Split QKV weight into separate Q, K, V weights
+            dim = value.shape[0] // 3
+            q_weight = value[:dim]
+            k_weight = value[dim : 2 * dim]
+            v_weight = value[2 * dim :]
+
+            # Create new keys for separate projections
+            base_key = key.replace("qkv.weight", "")
+            converted_state_dict[base_key + "q_proj.weight"] = q_weight
+            converted_state_dict[base_key + "k_proj.weight"] = k_weight
+            converted_state_dict[base_key + "v_proj.weight"] = v_weight
+        else:
+            # Keep all other weights as is
+            converted_state_dict[key] = value
+
+    originalModel.load_state_dict(converted_state_dict)
     originalModel = originalModel.eval().to(device)
-    print("Original CCT-2 loaded from checkpoint.")
+    print("Original CCT-2 loaded from checkpoint with converted attention weights.")
 
     print("Evaluating original model...")
-    originalTop1, originalTop5 = evaluateModel(originalModel, valLoader, device, "Original CCT-2")
+    originalTop1, originalTop5 = evaluateModel(
+        originalModel, valLoader, device, "Original CCT-2"
+    )
 
     print("Preparing and quantizing CCT-2...")
     FQModel = prepareFQCCT(originalModel.to("cpu"))
@@ -371,11 +488,30 @@ def deepQuantTestCCT():
     print(f"{'Original CCT-2':<25} {originalTop1:<24.2f} {originalTop5:<24.2f}")
     print(f"{'FQ CCT-2':<25} {FQTop1:<24.2f} {FQTop5:<24.2f}")
     print(f"{'TQ CCT-2':<25} {TQTop1:<24.2f} {TQTop5:<24.2f}")
-    print(f"{'FQ Drop':<25} {originalTop1 - FQTop1:<24.2f} {originalTop5 - FQTop5:<24.2f}")
-    print(f"{'TQ Drop':<25} {originalTop1 - TQTop1:<24.2f} {originalTop5 - TQTop5:<24.2f}")
+    print(
+        f"{'FQ Drop':<25} {originalTop1 - FQTop1:<24.2f} {originalTop5 - FQTop5:<24.2f}"
+    )
+    print(
+        f"{'TQ Drop':<25} {originalTop1 - TQTop1:<24.2f} {originalTop5 - TQTop5:<24.2f}"
+    )
 
     if abs(FQTop1 - TQTop1) > 5.0:
         print(
             f"Warning: Large accuracy drop between FQ and TQ models. "
             f"Difference: {abs(FQTop1 - TQTop1):.2f}%"
         )
+
+    # FBRANCASI: Important note
+    # Right now ONNX is not exporting the graph with GELUs folded and some nodes dont have shapes.
+    #
+    # If you need to use this ONNX in Deeploy (https://github.com/pulp-platform/Deeploy), please run
+    # these commands on the generated network.onnx to fix these problems that can arise in Deeploy:
+    #
+    # > python -m onnxruntime.transformers.optimizer --input Tests/ONNX/network.onnx --output network.onnx
+    #   --model_type vit --num_heads 6 --hidden_size 384 --use_multi_head_attention --disable_bias_gelu
+    #   --disable_bias_skip_layer_norm --disable_skip_layer_norm --use_multi_head_attention --opt_level 0
+    #
+    # > python -m onnxruntime.tools.symbolic_shape_infer --input network.onnx --output network.onnx
+    #
+    # Also, if you have duplicated shared Floor constants in the graph (this will create problems in
+    # Deeploy), you can fix this using the script FixCTT2Graph.py under the Utils folder of DeepQuant
