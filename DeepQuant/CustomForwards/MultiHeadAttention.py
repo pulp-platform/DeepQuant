@@ -13,7 +13,7 @@ from brevitas.nn.quant_mha import QuantMultiheadAttention
 
 
 def unrolledQuantMhaForward(
-    self: QuantMultiheadAttention, query: Tensor, key: Tensor, value: Tensor
+    self: QuantMultiheadAttention, query: Tensor, key: Tensor, value: Tensor, need_weights: bool = True
 ) -> Tensor:
     """
     Export-friendly forward that explicitly unrolls the multi-head logic.
@@ -84,4 +84,11 @@ def unrolledQuantMhaForward(
     )
 
     attnOutput = self.out_proj(attnOutput)
-    return attnOutput
+
+    if need_weights:
+        # return average attention weights over heads
+        attnWeights = attnWeights.view(batchSize, self.num_heads, seqLen, seqLen)
+        attnWeights = attnWeights.sum(dim=1) / self.num_heads
+    else:
+        attnWeights = None
+    return attnOutput, attnWeights
