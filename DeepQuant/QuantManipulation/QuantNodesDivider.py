@@ -132,7 +132,17 @@ def split_quant_nodes(
             for user_node in list(node.users.keys()):
                 new_args = []
                 for arg in user_node.args:
-                    new_args.append(dequant_node if arg is node else arg)
+                    if arg is node:
+                        new_args.append(dequant_node)
+                    # if the argument is a tuple or list (e.g. concatenation, addition)
+                    elif isinstance(arg, (tuple, list)):
+                        seq_type = type(arg)
+                        new_seq = []
+                        for a in arg:
+                            new_seq.append(dequant_node if a is node else a)
+                        new_args.append(seq_type(new_seq))
+                    else:
+                        new_args.append(arg)
                 user_node.args = tuple(new_args)
 
             nodes_to_erase.append(node)
