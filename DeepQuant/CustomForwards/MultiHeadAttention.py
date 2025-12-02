@@ -35,6 +35,16 @@ def unrolledQuantMhaForward(
         A torch.Tensor of shape [sequence_len, batch_size, embed_dim]
         after the unrolled MHA steps.
     """
+
+
+    # Handle batch_first option
+    if self.batch_first:
+        # All three share the same layout, so transpose them consistently.
+        # Shape: (batch, seq, embed_dim) -> (seq, batch, embed_dim)
+        query = query.permute(1, 0, 2)
+        key = key.permute(1, 0, 2)
+        value = value.permute(1, 0, 2)
+
     # 1) Q, K, V projections
     qOut = self.q_proj(query)
     kOut = self.k_proj(key)
@@ -84,6 +94,10 @@ def unrolledQuantMhaForward(
     )
 
     attnOutput = self.out_proj(attnOutput)
+
+    if self.batch_first:
+        # (L, B, E) -> (B, L, E)
+        attnOutput = attnOutput.permute(1, 0, 2)
 
     if need_weights:
         # return average attention weights over heads
