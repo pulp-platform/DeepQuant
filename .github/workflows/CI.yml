@@ -1,9 +1,14 @@
 name: CI
 
 on: 
-  # push:
-  # pull_request:
+  push:
+  pull_request:
   workflow_dispatch:
+
+# JUNGVI: Create a concurrency group per branch such that only the latest commit on a branch runs workflows
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
 
