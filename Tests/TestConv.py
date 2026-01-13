@@ -5,22 +5,23 @@
 # Victor Jung <jungvi@iis.ee.ethz.ch>
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-
+import brevitas.nn as qnn
 import pytest
 import torch
 import torch.nn as nn
-import brevitas.nn as qnn
 from brevitas.quant.scaled_int import (
     Int8ActPerTensorFloat,
-    Int32Bias,
     Int8WeightPerTensorFloat,
+    Int32Bias,
 )
-from DeepQuant.ExportBrevitas import exportBrevitas
+
+from DeepQuant import brevitasToTrueQuant
 
 
 class QuantConvNet(nn.Module):
+    """Simple quantized CNN with a single conv layer."""
 
-    convAndLinQuantParams = {
+    convQuantParams = {
         "bias": True,
         "weight_bit_width": 4,
         "bias_quant": Int32Bias,
@@ -30,31 +31,26 @@ class QuantConvNet(nn.Module):
         "return_quant_tensor": True,
     }
 
-    def __init__(self, in_channels: int = 1) -> None:
+    def __init__(self, inChannels: int = 1) -> None:
         super().__init__()
         self.inputQuant = qnn.QuantIdentity(return_quant_tensor=True)
-
         self.conv1 = qnn.QuantConv2d(
-            in_channels=in_channels,
+            in_channels=inChannels,
             out_channels=16,
             kernel_size=3,
             padding=1,
-            **QuantConvNet.convAndLinQuantParams
+            **QuantConvNet.convQuantParams,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        
         x = self.inputQuant(x)
         x = self.conv1(x)
-        
         return x
 
 
 @pytest.mark.SingleLayerTests
 def deepQuantTestConv() -> None:
-    
     torch.manual_seed(42)
-
     model = QuantConvNet().eval()
     sampleInput = torch.randn(1, 1, 28, 28)
-    exportBrevitas(model, sampleInput, debug=True)
+    brevitasToTrueQuant(model, sampleInput, debug=True, checkEquivalence=True)

@@ -33,13 +33,14 @@ dependencies = [
     "onnx",
     "onnxoptimizer",
     "onnxruntime",
+    "ultralytics",
 ]
 
 [tool.setuptools]
 packages = ["DeepQuant"]
 
 [tool.pytest.ini_options]
-python_files = ["Tests/*.py"]
+python_files = ["Tests/Test*.py"]
 python_functions = ["deepQuantTest*"]
 markers = [
     "SingleLayerTests: Tests for individual layers",

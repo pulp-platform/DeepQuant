@@ -2,7 +2,7 @@
 
 A library for true-quantization and optimization of neural networks.
 
-Deeploy is developed as part of the PULP project, a joint effort between ETH Zurich and the University of Bologna.
+DeepQuant is developed as part of the PULP project, a joint effort between ETH Zurich and the University of Bologna.
 
 ## License
 

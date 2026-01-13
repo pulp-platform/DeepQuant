@@ -5,37 +5,27 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 
+import brevitas.nn as qnn
 import pytest
 import torch
 import torch.nn as nn
 import torchvision.models as models
-from brevitas.graph.quantize import preprocess_for_quantize
 from brevitas.graph.per_input import AdaptiveAvgPoolToAvgPool
-import brevitas.nn as qnn
+from brevitas.graph.quantize import preprocess_for_quantize, quantize
 from brevitas.quant import (
     Int8ActPerTensorFloat,
     Int8WeightPerTensorFloat,
     Int32Bias,
     Uint8ActPerTensorFloat,
 )
-from brevitas.graph.quantize import quantize
 
-from DeepQuant.ExportBrevitas import exportBrevitas
+from DeepQuant import brevitasToTrueQuant
 
 
 def prepareResnet18Model() -> nn.Module:
-    """
-    Prepare a quantized ResNet18 model for testing.
-    Steps:
-      1) Load the torchvision ResNet18.
-      2) Convert it to eval mode.
-      3) Preprocess and adapt average pooling.
-      4) Quantize it using Brevitas.
-
-    Returns:
-        A quantized ResNet18 model ready for export tests.
-    """
+    """Prepare a fake-quantized (FQ) ResNet18 model."""
     baseModel = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+
     baseModel = baseModel.eval()
 
     computeLayerMap = {
@@ -67,16 +57,7 @@ def prepareResnet18Model() -> nn.Module:
         ),
     }
 
-    quantActMap = {
-        nn.ReLU: (
-            qnn.QuantReLU,
-            {
-                "act_quant": Uint8ActPerTensorFloat,
-                "return_quant_tensor": True,
-                "bit_width": 8,
-            },
-        ),
-    }
+    quantActMap = {}
 
     quantIdentityMap = {
         "signed": (
@@ -100,9 +81,7 @@ def prepareResnet18Model() -> nn.Module:
     baseModel = preprocess_for_quantize(
         baseModel, equalize_iters=20, equalize_scale_computation="range"
     )
-    baseModel = AdaptiveAvgPoolToAvgPool().apply(
-        baseModel, torch.ones(1, 3, 224, 224)
-    )
+    baseModel = AdaptiveAvgPoolToAvgPool().apply(baseModel, torch.ones(1, 3, 224, 224))
 
     quantizedResnet = quantize(
         graph_model=baseModel,
@@ -118,8 +97,6 @@ def prepareResnet18Model() -> nn.Module:
 def deepQuantTestResnet18() -> None:
 
     torch.manual_seed(42)
-
     quantizedModel = prepareResnet18Model()
     sampleInput = torch.randn(1, 3, 224, 224)
-
-    exportBrevitas(quantizedModel, sampleInput, debug=True)
+    brevitasToTrueQuant(quantizedModel, sampleInput, debug=True)

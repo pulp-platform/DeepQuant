@@ -24,8 +24,9 @@ dist/
 
 *.gz
 *-ubyte
-*.pth
+*.pt
 *.onnx
 *.npz
 onnx/*
 Dataset/*
+mnist_model.pth

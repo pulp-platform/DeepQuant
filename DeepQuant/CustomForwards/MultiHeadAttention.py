@@ -4,67 +4,76 @@
 #
 # Federico Brancasi <fbrancasi@ethz.ch>
 
-
 import math
+from typing import Optional, Tuple
+
 import torch
 import torch.nn.functional as F
-from torch import Tensor
 from brevitas.nn.quant_mha import QuantMultiheadAttention
+from torch import Tensor
 
 
-def unrolledQuantMhaForward(
-    self: QuantMultiheadAttention, query: Tensor, key: Tensor, value: Tensor
+def _mhaForwardImpl(
+    self: QuantMultiheadAttention,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    need_transpose_in: bool,
+    need_transpose_out: bool,
 ) -> Tensor:
-    """
-    Export-friendly forward that explicitly unrolls the multi-head logic.
+    """Core MHA forward implementation."""
+    # FBRANCASI: Handle batch_first by transposing if needed
+    if need_transpose_in:
+        if key is value:
+            if query is key:
+                query = key = value = query.transpose(1, 0)
+            else:
+                query, key = [x.transpose(1, 0) for x in (query, key)]
+                value = key
+        else:
+            query, key, value = [x.transpose(1, 0) for x in (query, key, value)]
 
-    Steps:
-      1) Q, K, V projections
-      2) Reshapes & permutes for multi-head
-      3) Scales queries
-      4) Applies softmax and intermediate quantizations
-      5) Out projection
+    if self.in_proj is not None:
+        # FBRANCASI: Handle packed projections (default case for models like ViT)
+        # Only support self-attention where query == key == value
+        if not (query is key and key is value):
+            raise RuntimeError(
+                "Packed in_proj is supported only for self-attention with k is v is q. Set packed_in_proj=False."
+            )
+        qkv = self.in_proj(query)
+        qkv_tensor = qkv.value if hasattr(qkv, "value") else qkv
+        qOut, kOut, vOut = qkv_tensor.chunk(3, dim=-1)
+    else:
+        q_result = self.q_proj(query)
+        k_result = self.k_proj(key)
+        v_result = self.v_proj(value)
 
-    Args:
-        self: The QuantMultiheadAttention instance.
-        query: The query tensor of shape [sequence_len, batch_size, embed_dim].
-        key: The key tensor, same shape as query.
-        value: The value tensor, same shape as query.
+        qOut = q_result.value if hasattr(q_result, "value") else q_result
+        kOut = k_result.value if hasattr(k_result, "value") else k_result
+        vOut = v_result.value if hasattr(v_result, "value") else v_result
 
-    Returns:
-        A torch.Tensor of shape [sequence_len, batch_size, embed_dim]
-        after the unrolled MHA steps.
-    """
-    # 1) Q, K, V projections
-    qOut = self.q_proj(query)
-    kOut = self.k_proj(key)
-    vOut = self.v_proj(value)
-
-    # 2) Multi-head reshape
     seqLen, batchSize, embedDim = qOut.shape
     headDim = embedDim // self.num_heads
 
     qOut = (
-        qOut.view(seqLen, batchSize, self.num_heads, headDim)
-        .permute(1, 2, 0, 3)
-        .reshape(batchSize * self.num_heads, seqLen, headDim)
+        qOut.contiguous()
+        .view(seqLen, batchSize * self.num_heads, headDim)
+        .transpose(0, 1)
     )
     kOut = (
-        kOut.view(seqLen, batchSize, self.num_heads, headDim)
-        .permute(1, 2, 0, 3)
-        .reshape(batchSize * self.num_heads, seqLen, headDim)
+        kOut.contiguous()
+        .view(seqLen, batchSize * self.num_heads, headDim)
+        .transpose(0, 1)
     )
     vOut = (
-        vOut.view(seqLen, batchSize, self.num_heads, headDim)
-        .permute(1, 2, 0, 3)
-        .reshape(batchSize * self.num_heads, seqLen, headDim)
+        vOut.contiguous()
+        .view(seqLen, batchSize * self.num_heads, headDim)
+        .transpose(0, 1)
     )
 
-    # 3) Scale queries, then quantize
     qScaled = qOut / math.sqrt(headDim)
     qScaled = self.q_scaled_quant(qScaled)
 
-    # 4) Transpose + quantize K, compute attention weights
     k_t = kOut.transpose(-2, -1)
     k_t = self.k_transposed_quant(k_t)
 
@@ -73,15 +82,67 @@ def unrolledQuantMhaForward(
     attnWeights = F.softmax(attnWeights, dim=-1)
     attnWeights = self.attn_output_weights_quant(attnWeights)
 
-    # 5) Quantize V, multiply, reshape back, and final out projection
     vOut = self.v_quant(vOut)
     attnOutput = torch.bmm(attnWeights, vOut)
 
     attnOutput = (
-        attnOutput.view(batchSize, self.num_heads, seqLen, headDim)
-        .permute(2, 0, 1, 3)
-        .reshape(seqLen, batchSize, embedDim)
+        attnOutput.transpose(0, 1).contiguous().view(seqLen, batchSize, embedDim)
     )
 
-    attnOutput = self.out_proj(attnOutput)
+    out_result = self.out_proj(attnOutput)
+    attnOutput = out_result.value if hasattr(out_result, "value") else out_result
+
+    if need_transpose_out:
+        attnOutput = attnOutput.transpose(1, 0)
+
     return attnOutput
+
+
+def mhaForwardBatchFirst(
+    self: QuantMultiheadAttention,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    need_weights: bool = True,
+    **kwargs,
+) -> Tuple[Tensor, Optional[Tensor]]:
+    """MHA forward for batch_first=True."""
+    attn_output = _mhaForwardImpl(
+        self, query, key, value, need_transpose_in=True, need_transpose_out=True
+    )
+    return (attn_output, None)
+
+
+def mhaForwardSeqFirst(
+    self: QuantMultiheadAttention,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    need_weights: bool = True,
+    **kwargs,
+) -> Tuple[Tensor, Optional[Tensor]]:
+    """MHA forward for batch_first=False."""
+    attn_output = _mhaForwardImpl(
+        self, query, key, value, need_transpose_in=False, need_transpose_out=False
+    )
+    return (attn_output, None)
+
+
+def mhaForward(
+    self: QuantMultiheadAttention,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    need_weights: bool = True,
+    **kwargs,
+) -> Tuple[Tensor, Optional[Tensor]]:
+    """Explicit, export-friendly MHA forward.
+
+    This function will be replaced with the appropriate batch_first or seq_first version
+    during module transformation based on the module's batch_first attribute.
+    """
+    # FBRANCASI: Appropriate version before tracing
+    if self.batch_first:
+        return mhaForwardBatchFirst(self, query, key, value, need_weights, **kwargs)
+    else:
+        return mhaForwardSeqFirst(self, query, key, value, need_weights, **kwargs)
