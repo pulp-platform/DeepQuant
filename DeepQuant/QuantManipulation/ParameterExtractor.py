@@ -45,7 +45,10 @@ def safe_get_scale(quant_obj: Any) -> Any:
     if maybe_scale is None:
         return None
     if isinstance(maybe_scale, torch.Tensor):
-        return maybe_scale.item()
+        if maybe_scale.numel() == 1:
+            return maybe_scale.item()
+        else:
+            return maybe_scale
     elif isinstance(maybe_scale, float):
         return maybe_scale
     try:

@@ -74,6 +74,12 @@ def unifyLinearDequants(
 
         # Collect and rewire the linear's arguments
         for arg in oldArgs:
+            
+            # NEW: skip None and non-Node args, keep them as-is
+            if arg is None or not isinstance(arg, fx.Node):
+                newLinArgs.append(arg)
+                continue
+           
             if arg.op == "call_module" and "dequant" in arg.target.lower():
                 if "bias_dequant" in arg.target.lower():
                     biasDequantNode = arg
