@@ -13,7 +13,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 
 RUN uv venv /opt/venv \
-    && uv sync --frozen --no-dev \
+    && uv sync --frozen --no-dev --no-install-project \
     && uv cache clean
 
 ENV VIRTUAL_ENV=/opt/venv
