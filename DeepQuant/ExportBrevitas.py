@@ -234,22 +234,6 @@ def exportBrevitas(
         printer.print_tabular(fxModelUnified)
         print()
 
-    # # Verify numerical consistency after dequant modification
-    # if torch.allclose(
-    #     output_model, output_fx_model_dequant_modified, atol=1e-5
-    # ):  # Verify numerical consistency
-    #     if debug:
-    #         print(f"{BLUE} ✓ Modification of Dequant Nodes: output is consistent{ENDC}")
-    # else:
-    #     raise RuntimeError(  # Raise error if inconsistent
-    #         f"{RED} ✗ Modification of Dequant Nodes changed the output significantly{ENDC}"
-    #     )
-
-    # if debug:
-    #     print("\n=== 4. Network after the Modification of Dequant Nodes ===\n")
-    #     printer.print_tabular(fx_model_unified)
-    #     print()
-
     onnxFile: str = EXPORT_FOLDER / "4_model_dequant_moved.onnx"
     torch.onnx.export(
         fxModelUnified,
@@ -270,6 +254,22 @@ def exportBrevitas(
         if debug:
             print(f"{BLUE} ✓ Modification of Dequant Nodes: output is consistent{ENDC}")
     else:
+        # Calculate error metrics
+        abs_error = torch.abs(outputModel - outputFxModelDequantModified)
+        max_abs_error = torch.max(abs_error).item()
+        mean_abs_error = torch.mean(abs_error).item()
+        
+        # Calculate relative error (avoid division by zero)
+        rel_error = abs_error / (torch.abs(outputModel) + 1e-10)
+        max_rel_error = torch.max(rel_error).item()
+        mean_rel_error = torch.mean(rel_error).item()
+        
+        print(f"{RED} ✗ Modification of Dequant Nodes changed the output significantly{ENDC}")
+        print(f"  Max Absolute Error: {max_abs_error:.6e}")
+        print(f"  Mean Absolute Error: {mean_abs_error:.6e}")
+        print(f"  Max Relative Error: {max_rel_error:.6e}")
+        print(f"  Mean Relative Error: {mean_rel_error:.6e}")
+        
         raise RuntimeError(  # Raise error if inconsistent
             f"{RED} ✗ Modification of Dequant Nodes changed the output significantly{ENDC}"
         )
