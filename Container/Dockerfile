@@ -10,11 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock .python-version ./
+COPY pyproject.toml uv.lock ./
+
+ENV UV_CACHE_DIR=/opt/uv-cache
 
 RUN uv venv /opt/venv \
-    && uv sync --frozen --no-dev --no-install-project \
-    && uv cache clean
+    && uv sync --frozen --no-dev --no-install-project
 
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
