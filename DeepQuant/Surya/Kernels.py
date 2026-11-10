@@ -11,18 +11,19 @@ One ONNX node for one accelerator kernel, in the `surya` domain.
     surya::Pointwise    a 1x1 convolution, which maps onto the same array
     surya::Depthwise    the 3x3 depthwise unit
 
-The inputs are the buffers in the order the driver programs them, and the
-attributes are the register fields:
+The inputs are the buffers in the order the driver programs them. An attribute
+has the name of the field of the task configuration, where the driver has one:
 
     inputs      x, w, S16, B32, shift, C_init, fp_shift, dec_fp_shift, pace,
                 accum_init
-    attributes  NORM_MODE, signed_out, kernel_shape, strides, pads,
-                dilations, group, ACCUM_INIT_MODE, PACE_FUNCTION, PACE_X_MIN,
-                PACE_X_MAX, pace_gain, pace_partitions, pace_degree
+    attributes  norm_mode, accum_init_mode, out_unsigned, kernel_shape,
+                strides, pads, dilations, group, pace_function, pace_x_min,
+                pace_x_max, pace_gain, pace_partitions, pace_degree
 
+A `surya::Depthwise` node has `dw_stride` and `dw_pad` for `strides` and `pads`.
 `fp_shift`, `dec_fp_shift` and `pace` are absent on a NORM_MODE 0 node.
 `accum_init` is the BF16 tensor the array loads into its accumulator, present
-only when `ACCUM_INIT_MODE` is not 0.
+only when `accum_init_mode` is not 0.
 """
 
 import itertools
@@ -66,21 +67,24 @@ class SuryaKernelFunction(torch.autograd.Function):
         # A configured layer can still lack the accumulator init operand.
         loadsAccumInit = len(operands) > len(kernel.operandNames)
         attributes = {
-            "NORM_MODE_i": kernel.normMode,
-            "signed_out_i": int(kernel.signed),
+            "norm_mode_i": kernel.normMode,
+            "accum_init_mode_i": 2 if loadsAccumInit else 0,
+            "out_unsigned_i": int(not kernel.signed),
             "kernel_shape_i": list(kernel.kernelShape),
-            "strides_i": list(kernel.strides),
-            "pads_i": list(kernel.pads),
             "dilations_i": list(kernel.dilations),
             "group_i": kernel.group,
-            "ACCUM_INIT_MODE_i": 2 if loadsAccumInit else 0,
         }
+        if kernel.opName == "Depthwise":
+            # The depthwise unit has one stride and one pad for both axes.
+            attributes.update(dw_stride_i=kernel.strides[0], dw_pad_i=kernel.pads[0])
+        else:
+            attributes.update(strides_i=list(kernel.strides), pads_i=list(kernel.pads))
         if owner.suryaTap is not None:
             pace = owner.suryaTap.pace
             attributes.update(
-                PACE_FUNCTION_s=pace.functionName,
-                PACE_X_MIN_f=float(pace.table.xMin),
-                PACE_X_MAX_f=float(pace.table.xMax),
+                pace_function_s=pace.functionName,
+                pace_x_min_f=float(pace.table.xMin),
+                pace_x_max_f=float(pace.table.xMax),
                 pace_gain_f=pace.gain,
                 # The flat `pace` operand holds (P - 1) + P*(D + 1) values.
                 pace_partitions_i=pace.table.partitions,
@@ -125,7 +129,7 @@ class SuryaRequantFunction(torch.autograd.Function):
             x,
             scale,
             *fields,
-            signed_out_i=int(unit.signed),
+            out_unsigned_i=int(not unit.signed),
             output_bits_i=8,
             rounding_s=unit.rounding,
             # `array` is a COMPUTE=0 NormQuant with S16, B32 and shift. `core`
