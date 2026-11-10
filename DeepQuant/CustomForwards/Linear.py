@@ -55,6 +55,7 @@ def quantWBIOLForward(self: QuantWeightBiasInputOutputLayer, inp: Tensor) -> Ten
       3) self.bias_quant (if bias is present)
       4) innerForwardImpl (wrapped)
       5) self.output_quant
+      6) self.wrappedOutputPack
 
     Args:
         self: The QuantWeightBiasInputOutputLayer instance.
@@ -72,4 +73,4 @@ def quantWBIOLForward(self: QuantWeightBiasInputOutputLayer, inp: Tensor) -> Ten
 
     output = self.wrappedInnerForwardImpl(quantInput, quantWeight, quantBias)
     quantOutput = self.output_quant(output)
-    return quantOutput
+    return self.wrappedOutputPack(quantOutput)

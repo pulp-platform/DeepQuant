@@ -25,6 +25,7 @@ from brevitas.nn.quant_layer import (
 from brevitas.nn.quant_mha import QuantMultiheadAttention
 
 from .Base import TransformationPass
+from ..CustomForwards.Common import UnpackQuantTensor, outputPackFor
 from ..CustomForwards.Linear import InnerForwardImplWrapperLinear, quantWBIOLForward
 from ..CustomForwards.MultiHeadAttention import unrolledQuantMhaForward
 from ..CustomTracer import CustomBrevitasTracer
@@ -62,10 +63,12 @@ class LinearTransformation(TransformationPass):
         module.wrappedInnerForwardImpl = InnerForwardImplWrapperLinear(
             module.inner_forward_impl
         )
+        module.wrappedOutputPack = outputPackFor(module)
         module.forward = quantWBIOLForward.__get__(module)
 
         if tracer:
             tracer.registerLeafModule(InnerForwardImplWrapperLinear)
+            tracer.registerLeafModule(UnpackQuantTensor)
             tracer.registerNonLeafModule(QuantWeightBiasInputOutputLayer)
 
 
@@ -105,10 +108,12 @@ class ActivationTransformation(TransformationPass):
             actInstance = nn.Identity()
 
         module.wrappedActImpl = InnerForwardImplWrapperActivation(actInstance)
+        module.wrappedOutputPack = outputPackFor(module)
         module.forward = quantActivationForward.__get__(module)
 
         if tracer:
             tracer.registerLeafModule(InnerForwardImplWrapperActivation)
+            tracer.registerLeafModule(UnpackQuantTensor)
             tracer.registerNonLeafModule(QuantNonLinearActLayer)
 
 
