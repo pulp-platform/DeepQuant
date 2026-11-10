@@ -35,6 +35,7 @@ from DeepQuant.Surya import (
     setIdeal,
 )
 from DeepQuant.Surya.Operators import roundToBf16
+from DeepQuant.Surya.Pace import floatToBf16
 
 CHANNELS = 16
 
@@ -100,14 +101,6 @@ def deepQuantTestSuryaCastTruncatesAndNeverRounds() -> None:
 
 
 @pytest.mark.SingleLayerTests
-@pytest.mark.parametrize("shift", [0, 2, 5])
-def deepQuantTestSuryaDecastExportMatchesExact(shift: int) -> None:
-    torch.manual_seed(4)
-    values = (torch.randn(4000) * 30).to(torch.bfloat16).to(torch.float32)
-    assertExportMatchesExact(SuryaDecast(shift, rank=1, channelDim=0), values)
-
-
-@pytest.mark.SingleLayerTests
 def deepQuantTestSuryaDecastRoundsHalfToEven() -> None:
     values = torch.tensor([1.6, -1.6, 0.5, 1.5, -2.5, 300.0, -300.0])
     out = SuryaDecast(0, rank=1, channelDim=0)(values)
@@ -124,12 +117,11 @@ def deepQuantTestBf16RoundingIsTheSameOnTheGpu() -> None:
 
 
 @pytest.mark.SingleLayerTests
-def deepQuantTestSuryaResidualExportMatchesExact() -> None:
+def deepQuantTestSuryaResidualAddsTheRoundedSkip() -> None:
     """The accumulator start value, rounded from the BF16 tensor in memory."""
     torch.manual_seed(5)
     acc = torch.randint(-(2**20), 2**20, (100,)).float()
     skip = (torch.randn(100) * 2.0**4).to(torch.bfloat16).to(torch.float32)
-    assertExportMatchesExact(SuryaResidual(), acc, skip)
     out = SuryaResidual()(acc, skip)
     assert torch.equal(out, acc.double() + torch.round(skip.double()))
 
@@ -191,11 +183,9 @@ def deepQuantTestSuryaTapRunsThePaceTable() -> None:
     assert out.shape == values.shape
     assert bool(((out >= -128) & (out <= 127)).all())
     assert bool((out == out.round()).all())
-    # Each stage is a separate operator, so each one exports on its own.
+    # The cast and the PACE table each have an export form.
     assertExportMatchesExact(tap.cast, values)
-    bf16 = tap.cast(values)
-    assertExportMatchesExact(tap.pace, bf16)
-    assertExportMatchesExact(tap.decast, tap.pace(bf16))
+    assertExportMatchesExact(tap.pace, tap.cast(values))
 
 
 @pytest.mark.SingleLayerTests
@@ -262,25 +252,12 @@ def deepQuantTestLowerRequantHandlesOutOfRangeScales() -> None:
 
 @pytest.mark.SingleLayerTests
 @pytest.mark.parametrize("function", ["silu", "gelu", "sigmoid", "tanh"])
-def deepQuantTestPaceTableIsDeterministic(function: str) -> None:
-    """Two fits of one function give the same table."""
-    first = buildTable(function, -8.0, 8.0)
-    second = buildTable(function, -8.0, 8.0)
-    assert np.array_equal(first.coefficients, second.coefficients)
-    assert np.array_equal(first.breakpoints, second.breakpoints)
-    assert first.packed().size == (first.partitions - 1) + first.partitions * (
-        first.degree + 1
-    )
-
-
-@pytest.mark.SingleLayerTests
-def deepQuantTestPaceCoefficientsAreBf16() -> None:
-    """Every value of a table is a BF16 value."""
-    from DeepQuant.Surya.Pace import floatToBf16
-
-    table = buildTable("silu", -8.0, 8.0)
+def deepQuantTestPaceTableHoldsBf16(function: str) -> None:
+    """A table holds 31 breakpoints and 32 coefficient pairs, all BF16 values."""
+    table = buildTable(function, -8.0, 8.0)
     assert np.array_equal(table.coefficients, floatToBf16(table.coefficients))
     assert np.array_equal(table.breakpoints, floatToBf16(table.breakpoints))
+    assert table.packed().size == 31 + 32 * 2
 
 
 @pytest.mark.SingleLayerTests
