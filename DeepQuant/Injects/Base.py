@@ -57,6 +57,14 @@ class TransformationPass(ABC):
         """
         return isinstance(module, self.moduleCls)
 
+    def isTransformed(self, module: nn.Module) -> bool:
+        """Whether a pass of another class replaced this module's forward."""
+        return getattr(module, "_deepquantPass", type(self)) is not type(self)
+
+    def markTransformed(self, module: nn.Module) -> None:
+        """Claim a module, so a pass of another class leaves its forward alone."""
+        module._deepquantPass = type(self)
+
     @abstractmethod
     def injectForward(
         self, module: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
@@ -103,7 +111,8 @@ class TransformationPass(ABC):
         """
         transformDone = False
         for _, submodule in model.named_modules():
-            if self.checkModuleType(submodule):
+            if self.checkModuleType(submodule) and not self.isTransformed(submodule):
                 self.injectForward(submodule, tracer)
+                self.markTransformed(submodule)
                 transformDone = True
         return transformDone
