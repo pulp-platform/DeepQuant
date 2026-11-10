@@ -7,9 +7,8 @@
 """
 The PACE unit: a piecewise polynomial in BF16, and the fit that fills its memory.
 
-`surya_pace_mem` holds the breakpoints in breadth-first tree order, then the
-coefficients of each partition, constant term first. Every value is BF16. The
-fit follows the Surya golden model.
+The PACE memory holds the breakpoints in breadth-first tree order, then the
+coefficients of each partition, constant term first. Every value is BF16.
 
 The decast after PACE is `round(g * 2**dec_fp_shift)`, so a table that holds
 `gain * f` gives the output scale `2**-dec_fp_shift / gain`.
@@ -28,20 +27,22 @@ from torch import Tensor
 
 from .Operators import SuryaOperator, fmaBf16
 
-SUPPORTED_FUNCTIONS = ("silu", "gelu", "exp", "inv", "rsqrt", "sigmoid", "tanh")
+# For each name: the function the fit samples, and its float form in torch.
+FUNCTIONS = {
+    "silu": (lambda x: x / (1.0 + np.exp(-x)), F.silu),
+    "gelu": (
+        lambda x: 0.5 * x * (1.0 + np.vectorize(math.erf)(x / np.sqrt(2.0))),
+        F.gelu,
+    ),
+    "exp": (np.exp, torch.exp),
+    "inv": (lambda x: 1.0 / x, torch.reciprocal),
+    "rsqrt": (lambda x: 1.0 / np.sqrt(x), torch.rsqrt),
+    "sigmoid": (lambda x: 1.0 / (1.0 + np.exp(-x)), torch.sigmoid),
+    "tanh": (np.tanh, torch.tanh),
+}
 
 # These vanish at -inf, so partition 0 is a zero guard below xMin.
 ZERO_BELOW_FUNCTIONS = ("silu", "gelu", "exp", "sigmoid")
-
-IDEAL_FUNCTIONS = {
-    "silu": F.silu,
-    "gelu": F.gelu,
-    "exp": torch.exp,
-    "inv": torch.reciprocal,
-    "rsqrt": torch.rsqrt,
-    "sigmoid": torch.sigmoid,
-    "tanh": torch.tanh,
-}
 
 PACE_PARTITIONS = 32
 PACE_DEGREE = 1
@@ -53,24 +54,6 @@ PACE_NAMES = {
     "Sigmoid": "sigmoid",
     "Tanh": "tanh",
 }
-
-
-def evalFunction(name: str, x: np.ndarray) -> np.ndarray:
-    if name == "silu":
-        return x / (1.0 + np.exp(-x))
-    if name == "gelu":
-        return 0.5 * x * (1.0 + np.vectorize(math.erf)(x / np.sqrt(2.0)))
-    if name == "exp":
-        return np.exp(x)
-    if name == "inv":
-        return 1.0 / x
-    if name == "rsqrt":
-        return 1.0 / np.sqrt(x)
-    if name == "sigmoid":
-        return 1.0 / (1.0 + np.exp(-x))
-    if name == "tanh":
-        return np.tanh(x)
-    raise ValueError(f"unsupported function {name!r}; supported: {SUPPORTED_FUNCTIONS}")
 
 
 def floatToBf16(values: np.ndarray) -> np.ndarray:
@@ -99,7 +82,7 @@ def bstOrder(count: int) -> np.ndarray:
 
 @dataclasses.dataclass
 class PaceTable:
-    """One `surya_pace_mem` image, in real numbers."""
+    """One image of the PACE memory, in real numbers."""
 
     functionName: str
     xMin: float
@@ -152,9 +135,6 @@ def buildTable(
     functionName: str,
     xMin: float = -8.0,
     xMax: float = 8.0,
-    partitions: int = PACE_PARTITIONS,
-    degree: int = PACE_DEGREE,
-    samplesPerPartition: int = 256,
     zeroBelow: Optional[bool] = None,
 ) -> PaceTable:
     """Least-squares fit of one polynomial for each partition, rounded to BF16.
@@ -163,24 +143,18 @@ def buildTable(
     `ZERO_BELOW_FUNCTIONS`. A range too narrow to reach the tail of the function
     wants it off.
     """
-    if partitions < 2:
-        raise ValueError("partitions must be at least 2")
-    if samplesPerPartition <= degree:
-        raise ValueError("samplesPerPartition must be greater than degree")
     if not xMin < xMax:
         raise ValueError("xMin must be smaller than xMax")
 
+    fit = FUNCTIONS[functionName][0]
     guard = functionName in ZERO_BELOW_FUNCTIONS if zeroBelow is None else zeroBelow
-    edges = np.linspace(xMin, xMax, partitions - guard + 1, dtype=np.float64)
+    edges = np.linspace(xMin, xMax, PACE_PARTITIONS - guard + 1, dtype=np.float64)
     if guard:
         edges = np.concatenate(([xMin - (edges[1] - edges[0])], edges))
-    coefficients = np.zeros((partitions, degree + 1), dtype=np.float32)
-    for part in range(int(guard), partitions):
-        xs = np.linspace(
-            edges[part], edges[part + 1], samplesPerPartition, dtype=np.float64
-        )
-        ys = evalFunction(functionName, xs)
-        coefficients[part] = np.polyfit(xs, ys, degree)[::-1].astype(np.float32)
+    coefficients = np.zeros((PACE_PARTITIONS, PACE_DEGREE + 1), dtype=np.float32)
+    for part in range(int(guard), PACE_PARTITIONS):
+        xs = np.linspace(edges[part], edges[part + 1], 256, dtype=np.float64)
+        coefficients[part] = np.polyfit(xs, fit(xs), PACE_DEGREE)[::-1]
     return PaceTable(
         functionName=functionName,
         xMin=xMin,
@@ -235,13 +209,7 @@ class SuryaPwpa(SuryaOperator):
         return self._evaluate(flat, parts).reshape(x.shape)
 
     def idealForward(self, x: Tensor) -> Tensor:
-        return (IDEAL_FUNCTIONS[self.functionName](x) * self.gain).to(torch.float32)
-
-    def extra_repr(self) -> str:
-        return (
-            f"{self.functionName}, {self.table.partitions} partitions, "
-            f"degree {self.table.degree}, gain {self.gain:.4g}"
-        )
+        return (FUNCTIONS[self.functionName][1](x) * self.gain).to(torch.float32)
 
 
 def buildPwpa(

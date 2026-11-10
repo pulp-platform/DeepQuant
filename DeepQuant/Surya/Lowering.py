@@ -35,12 +35,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from .Operators import (
-    NQ_BIAS_MAX,
-    NQ_BIAS_MIN,
-    NQ_SCALE_MAX,
-    NQ_SHIFT_MAX,
-)
+from .Operators import INT32_MAX, INT32_MIN, NQ_SCALE_MAX, NQ_SHIFT_MAX
 
 
 @dataclasses.dataclass
@@ -72,16 +67,9 @@ def lowerRequant(
     """
     sW = np.asarray(sW, dtype=np.float64).reshape(-1)
     n = sW.size
-    a = (
-        np.ones(n)
-        if affine is None
-        else np.asarray(affine[0], dtype=np.float64).reshape(-1)
-    )
-    b = (
-        np.zeros(n)
-        if affine is None
-        else np.asarray(affine[1], dtype=np.float64).reshape(-1)
-    )
+    a, b = (np.ones(n), np.zeros(n)) if affine is None else affine
+    a = np.asarray(a, dtype=np.float64).reshape(-1)
+    b = np.asarray(b, dtype=np.float64).reshape(-1)
     if bias is not None:
         b = b + a * np.asarray(bias, dtype=np.float64).reshape(-1)
 
@@ -94,41 +82,32 @@ def lowerRequant(
 
     offsetOut = b / sY
 
-    # 1. The shift S16 wants, and the multiplier it gives.
+    def fields(shift):
+        """S16 at this shift, the start value that takes the offset, the residue."""
+        s16 = np.clip(np.round(m * np.exp2(shift)), 1, NQ_SCALE_MAX)
+        if not useAccumulatorBias:
+            return s16, None, offsetOut
+        realised = s16 * np.exp2(-shift)
+        cInit = np.clip(np.round(offsetOut / realised), INT32_MIN + 1, INT32_MAX)
+        return s16, cInit, offsetOut - cInit * realised
+
+    # 1. The shift S16 wants.
     with np.errstate(divide="ignore"):
         roomS16 = np.floor(np.log2(NQ_SCALE_MAX / m))
     shift = np.clip(np.nan_to_num(roomS16, neginf=0.0), 0, NQ_SHIFT_MAX)
-    s16 = np.clip(np.round(m * np.exp2(shift)), 1, NQ_SCALE_MAX)
+    s16, cInit, residue = fields(shift)
 
-    # 2. The accumulator start value takes the offset.
-    cInit = None
-    residue = offsetOut
-    if useAccumulatorBias:
-        cInit = np.clip(
-            np.round(offsetOut / (s16 * np.exp2(-shift))), NQ_BIAS_MIN + 1, NQ_BIAS_MAX
-        )
-        residue = offsetOut - cInit * (s16 * np.exp2(-shift))
-
-    # 3. A channel with a clipped start value gets a smaller shift.
+    # 2. A channel with a clipped start value gets a smaller shift.
     need = np.abs(residue)
     roomB32 = np.full(n, float(NQ_SHIFT_MAX))
     live = need > 0
-    roomB32[live] = np.floor(np.log2(NQ_BIAS_MAX / need[live]))
-    reduced = np.clip(np.minimum(shift, roomB32), 0, NQ_SHIFT_MAX)
-    if np.any(reduced != shift):
-        shift = reduced
-        s16 = np.clip(np.round(m * np.exp2(shift)), 1, NQ_SCALE_MAX)
-        if useAccumulatorBias:
-            cInit = np.clip(
-                np.round(offsetOut / (s16 * np.exp2(-shift))),
-                NQ_BIAS_MIN + 1,
-                NQ_BIAS_MAX,
-            )
-            residue = offsetOut - cInit * (s16 * np.exp2(-shift))
+    roomB32[live] = np.floor(np.log2(INT32_MAX / need[live]))
+    shift = np.clip(np.minimum(shift, roomB32), 0, NQ_SHIFT_MAX)
+    s16, cInit, residue = fields(shift)
     twoP = np.exp2(shift)
-    b32 = np.clip(np.round(residue * twoP), NQ_BIAS_MIN, NQ_BIAS_MAX)
+    b32 = np.clip(np.round(residue * twoP), INT32_MIN, INT32_MAX)
 
-    # 4. The multipliers outside [1, 32767]/2**shift, which have no encoding.
+    # 3. The multipliers outside [1, 32767]/2**shift, which have no encoding.
     wanted = m * twoP
     clamped = (wanted < 1) | (wanted > NQ_SCALE_MAX)
     if strict and np.any(clamped):

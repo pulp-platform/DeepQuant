@@ -43,14 +43,10 @@ from .Operators import (
     SuryaCast,
     SuryaDecast,
     SuryaNormQuant,
-    SuryaOperator,
     SuryaResidual,
     channelShape,
 )
 from .Pace import SuryaPwpa
-
-# float32 holds an integer exactly below 2**24.
-FLOAT32_EXACT_INT = 2**24
 
 
 @dataclasses.dataclass
@@ -76,7 +72,7 @@ class SuryaLayerSpec:
     signed: bool = True
     rank: int = 4
     channelDim: int = 1
-    # 32 on the tap, where select_biased_i keeps the accumulator in INT32.
+    # 32 on the tap, which keeps the accumulator in INT32.
     outputBits: int = 8
     # The INT32 -> BF16 cast after an INT32 NormQuant. None on the INT8 path.
     fpShift: Optional[int] = None
@@ -94,7 +90,27 @@ class SuryaLayerSpec:
     groups: int = 1
 
 
-class ScaleToCodes(nn.Module):
+class _Scale(nn.Module):
+    """Hold a scale: one number, or one for each channel."""
+
+    def __init__(
+        self,
+        scale: Union[float, np.ndarray],
+        rank: int = 4,
+        channelDim: int = 1,
+    ) -> None:
+        super().__init__()
+        values = torch.as_tensor(
+            np.asarray(scale, dtype=np.float64), dtype=torch.float32
+        )
+        if values.numel() > 1:
+            values = channelShape(values.flatten(), rank, channelDim)
+        else:
+            values = values.reshape(())
+        self.register_buffer("scale", values)
+
+
+class ScaleToCodes(_Scale):
     """Divide a tensor that already sits on a grid by its scale.
 
     The result is the INT8 code the CIM array reads. The round removes the
@@ -102,44 +118,12 @@ class ScaleToCodes(nn.Module):
     and one for each channel for the residual skip.
     """
 
-    def __init__(
-        self,
-        scale: Union[float, np.ndarray],
-        rank: int = 4,
-        channelDim: int = 1,
-    ) -> None:
-        super().__init__()
-        values = torch.as_tensor(
-            np.asarray(scale, dtype=np.float64), dtype=torch.float32
-        )
-        if values.numel() > 1:
-            values = channelShape(values.flatten(), rank, channelDim)
-        else:
-            values = values.reshape(())
-        self.register_buffer("scale", values)
-
     def forward(self, x: Tensor) -> Tensor:
         return torch.round(x / self.scale)
 
 
-class CodesToScale(nn.Module):
+class CodesToScale(_Scale):
     """Put INT8 codes back on the real axis. The scale is per channel on the tap."""
-
-    def __init__(
-        self,
-        scale: Union[float, np.ndarray],
-        rank: int = 4,
-        channelDim: int = 1,
-    ) -> None:
-        super().__init__()
-        values = torch.as_tensor(
-            np.asarray(scale, dtype=np.float64), dtype=torch.float32
-        )
-        if values.numel() > 1:
-            values = channelShape(values.flatten(), rank, channelDim)
-        else:
-            values = values.reshape(())
-        self.register_buffer("scale", values)
 
     def forward(self, x: Tensor) -> Tensor:
         return x * self.scale
@@ -160,12 +144,12 @@ class AccumulatorGuard(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         if not torch.jit.is_tracing():
             with torch.no_grad():
-                self.inexact += int((x.abs() >= FLOAT32_EXACT_INT).sum())
+                self.inexact += int((x.abs() >= 2**24).sum())
                 self.seen += int(x.numel())
         return x
 
 
-class SuryaTap(SuryaOperator):
+class SuryaTap(nn.Module):
     """The NORM_MODE 4 path: cast, PACE, decast."""
 
     def __init__(
@@ -185,7 +169,6 @@ class SuryaTap(SuryaOperator):
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        # The three children carry their own exportMode.
         return self.decast(self.pace(self.cast(x)))
 
 
@@ -232,12 +215,8 @@ def suryaWBIOLForward(
 class SuryaComputeTransformation(TransformationPass):
     """Put every compute layer that has a spec on the integer datapath."""
 
-    def __init__(
-        self, specs: Dict[str, SuryaLayerSpec], validationTol: float = 1e-2
-    ) -> None:
-        super().__init__(
-            moduleCls=QuantWeightBiasInputOutputLayer, validationTol=validationTol
-        )
+    def __init__(self, specs: Dict[str, SuryaLayerSpec]) -> None:
+        super().__init__(moduleCls=QuantWeightBiasInputOutputLayer, validationTol=1e-2)
         self.specs = specs
         self.installed: Dict[str, SuryaLayerSpec] = {}
 
@@ -248,9 +227,11 @@ class SuryaComputeTransformation(TransformationPass):
         done = False
         for path, module in model.named_modules():
             spec = self.specs.get(path)
-            if spec is None or not self.checkModuleType(module):
-                continue
-            if self.isTransformed(module):
+            if (
+                spec is None
+                or not self.checkModuleType(module)
+                or self.isTransformed(module)
+            ):
                 continue
             self.installForward(module, spec, tracer)
             self.markTransformed(module)
@@ -261,10 +242,7 @@ class SuryaComputeTransformation(TransformationPass):
     def injectForward(
         self, module: nn.Module, tracer: Optional[CustomBrevitasTracer] = None
     ) -> None:
-        raise RuntimeError(
-            "SuryaComputeTransformation installs a forward per module path, so "
-            "use transform() rather than injectForward()"
-        )
+        raise RuntimeError("the forward depends on the module path: call transform()")
 
     def installForward(
         self,
@@ -272,10 +250,9 @@ class SuryaComputeTransformation(TransformationPass):
         spec: SuryaLayerSpec,
         tracer: Optional[CustomBrevitasTracer] = None,
     ) -> None:
-        if not hasattr(module, "wrappedInnerForwardImpl"):
-            module.wrappedInnerForwardImpl = InnerForwardImplWrapperLinear(
-                module.inner_forward_impl
-            )
+        module.wrappedInnerForwardImpl = InnerForwardImplWrapperLinear(
+            module.inner_forward_impl
+        )
         device = module.weight.device
         module.suryaUnpack = UnpackQuantTensor()
         module.suryaToCodes = ScaleToCodes(spec.scaleIn).to(device)
@@ -336,7 +313,6 @@ class SuryaComputeTransformation(TransformationPass):
             cInit=spec.params.cInit,
             multiplier=spec.params.multiplier,
         ).to(device)
-        table = None if spec.tap is None else spec.tap.pace.table
         module.suryaKernel = SuryaKernel(
             owner=module,
             kind=spec.kind,
@@ -347,13 +323,6 @@ class SuryaComputeTransformation(TransformationPass):
             pads=spec.pads,
             dilations=spec.dilations,
             group=spec.groups,
-            paceFunction=None if spec.tap is None else spec.tap.pace.functionName,
-            paceXMin=0.0 if table is None else table.xMin,
-            paceXMax=0.0 if table is None else table.xMax,
-            paceGain=1.0 if spec.tap is None else float(spec.tap.pace.gain),
-            pacePartitions=0 if table is None else table.partitions,
-            paceDegree=0 if table is None else table.degree,
-            accumInitMode=0 if spec.accumInit is None else 2,
         )
         module.forward = suryaWBIOLForward.__get__(module)
 

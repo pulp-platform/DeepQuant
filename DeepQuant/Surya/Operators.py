@@ -7,25 +7,11 @@
 """
 Operators of the Surya accelerator datapath, as FX-traceable leaf modules.
 
-    SuryaNormQuant   INT32 accumulator -> INT8, or -> INT32 on the tap
-    SuryaCast        INT32 -> BF16, truncating
-    SuryaDecast      BF16 -> INT8, a shift and a round half to even
-    SuryaResidual    an INT32 accumulator start value
-
-The NormQuant is the requantization the CIM array feeds:
-
-    y = clamp((acc32 * S16 + B32) >>> shift, -128, 127)
-
-S16 is a signed 16-bit field and B32 a signed 32-bit one. The shift field is
-8 bits, and the lowering uses 0 to 31. NORM_MODE 4 keeps the result in INT32
-and sends it to the tap, the path of every non-linearity:
+The NormQuant requantizes the INT32 accumulator of the CIM array to INT8.
+NORM_MODE 4 keeps the result in INT32 and sends it to the tap, the path of
+every non-linearity:
 
     acc32 -> NormQuant (INT32) -> Cast -> Pace -> Decast -> INT8
-
-`exactForward` is the arithmetic the RTL performs. `exportForward` is the same
-function in ONNX opset-13 operators; `assertExportMatchesExact` compares them.
-`idealForward` is the float function the arithmetic approximates, and
-`setIdeal` selects it by the name of the approximation.
 """
 
 from typing import Iterable, Optional, Union
@@ -37,12 +23,7 @@ from torch import Tensor
 # NormQuant field limits.
 NQ_SCALE_MAX = 2**15 - 1
 NQ_SHIFT_MAX = 31
-NQ_BIAS_MIN = -(2**31)
-NQ_BIAS_MAX = 2**31 - 1
-
-INT8_MIN, INT8_MAX = -128, 127
-UINT8_MIN, UINT8_MAX = 0, 255
-INT32_MAX = 2**31 - 1
+INT32_MIN, INT32_MAX = -(2**31), 2**31 - 1
 
 # The approximations `setIdeal` switches off:
 #   normquant   S16 * 2**-shift in place of the float multiplier
@@ -97,10 +78,13 @@ def fmaBf16(a: Tensor, b: Tensor, c: Tensor, export: bool = False) -> Tensor:
 
 
 class SuryaOperator(nn.Module):
-    """A Surya operator: the RTL arithmetic, or its ONNX form in `exportMode`.
+    """One function in up to three forms.
 
-    With `ideal` set the operator runs `idealForward`. `approximation` is its
-    name in `APPROXIMATIONS`, empty for an operator that approximates nothing.
+    `exactForward` is the arithmetic the RTL performs. `exportMode` selects
+    `exportForward`, the same function in ONNX opset-13 operators. `ideal`
+    selects `idealForward`, the float function the arithmetic approximates.
+    `approximation` is the name of the operator in `APPROXIMATIONS`, empty for
+    an operator that approximates nothing.
     """
 
     approximation = ""
@@ -127,14 +111,11 @@ class SuryaOperator(nn.Module):
         return self.exactForward(*args)
 
 
-def setExportMode(module: nn.Module, enabled: bool = True) -> int:
+def setExportMode(module: nn.Module, enabled: bool = True) -> None:
     """Switch every Surya operator in a model between the two forward paths."""
-    count = 0
     for sub in module.modules():
         if isinstance(sub, SuryaOperator):
             sub.exportMode = enabled
-            count += 1
-    return count
 
 
 def setIdeal(module: nn.Module, names: Iterable[str] = ()) -> int:
@@ -184,8 +165,8 @@ class SuryaNormQuant(SuryaOperator):
 
     The shift is arithmetic, so it floors a negative value where a division
     truncates toward zero. `outputBits` is 8 on the normal path. NORM_MODE 4
-    sets it to 32, the +/-(2**31 - 1) saturator `select_biased_i` picks.
-    `multiplier` is the float M that S16 and shift encode.
+    sets it to 32, which saturates to +/-(2**31 - 1). `multiplier` is the float
+    M that S16 and shift encode.
     """
 
     approximation = "normquant"
@@ -213,7 +194,7 @@ class SuryaNormQuant(SuryaOperator):
             )
         if int(s16.abs().max()) > NQ_SCALE_MAX:
             raise ValueError(f"S16 does not fit 16 bits: max {int(s16.abs().max())}")
-        if int(b32.min()) < NQ_BIAS_MIN or int(b32.max()) > NQ_BIAS_MAX:
+        if int(b32.min()) < INT32_MIN or int(b32.max()) > INT32_MAX:
             raise ValueError("B32 does not fit int32")
         if int(shift.min()) < 0 or int(shift.max()) > NQ_SHIFT_MAX:
             raise ValueError(f"shift must lie in 0..{NQ_SHIFT_MAX}")
@@ -228,13 +209,12 @@ class SuryaNormQuant(SuryaOperator):
             channelShape(torch.exp2(shift.to(torch.float64)), rank, channelDim),
         )
         # The accumulator start value, which the array loads before the reduction.
-        if cInit is None:
-            self.cInit = None
-        else:
-            values = torch.as_tensor(cInit).flatten().to(torch.int64)
-            if int(values.abs().max()) > INT32_MAX:
+        if cInit is not None:
+            cInit = torch.as_tensor(cInit).flatten().to(torch.int64)
+            if int(cInit.abs().max()) > INT32_MAX:
                 raise ValueError("the accumulator start value does not fit int32")
-            self.register_buffer("cInit", channelShape(values, rank, channelDim))
+            cInit = channelShape(cInit, rank, channelDim)
+        self.register_buffer("cInit", cInit)
         if multiplier is None:
             realised = self.s16 / self.twoPowShift
         else:
@@ -250,11 +230,8 @@ class SuryaNormQuant(SuryaOperator):
     @property
     def limits(self) -> tuple:
         if self.outputBits == 32:
-            # The tap saturator is symmetric: select_biased_i picks +/-(2**31 - 1).
             return (-INT32_MAX, INT32_MAX)
-        if self.signed:
-            return (INT8_MIN, INT8_MAX)
-        return (UINT8_MIN, UINT8_MAX)
+        return (-128, 127) if self.signed else (0, 255)
 
     def _accumulator(self, acc: Tensor) -> Tensor:
         value = _asAccumulator(acc)
@@ -281,34 +258,21 @@ class SuryaNormQuant(SuryaOperator):
         value = _asAccumulator(acc).to(torch.float64) * self.multiplier + offset
         return torch.clamp(torch.floor(value), lo, hi).to(self.outputDtype)
 
-    def extra_repr(self) -> str:
-        return (
-            f"channels={self.s16.numel()}, outputBits={self.outputBits}, "
-            f"signed={self.signed}, shift={int(self.shift.min())}.."
-            f"{int(self.shift.max())}"
-            + ("" if self.cInit is None else ", accumulator start value")
-        )
-
 
 class SuryaCast(SuryaOperator):
     """INT32 -> BF16, truncating, representing `x * 2**-fpShift`.
 
-    The golden model normalises with a leading zero count and has no round bit,
-    so the magnitude only shrinks. `fpShift` folds into the exponent. It is one
-    byte for each channel in `surya_nq_mem`.
+    The hardware normalises with a leading zero count and has no round bit, so
+    the magnitude only shrinks. `fpShift` is one byte for each channel and folds
+    into the exponent.
     """
 
     approximation = "cast"
 
     def __init__(
-        self,
-        fpShift: Union[int, Tensor] = 0,
-        significandBits: int = BF16_SIGNIFICAND_BITS,
-        rank: int = 4,
-        channelDim: int = 1,
+        self, fpShift: Union[int, Tensor] = 0, rank: int = 4, channelDim: int = 1
     ) -> None:
         super().__init__()
-        self.significandBits = significandBits
         shift = torch.as_tensor(fpShift).flatten().to(torch.float64)
         self.register_buffer(
             "scale", channelShape(torch.exp2(-shift), rank, channelDim)
@@ -322,7 +286,7 @@ class SuryaCast(SuryaOperator):
         smeared = mag
         for step in (1, 2, 4, 8, 16, 32):
             smeared = smeared | (smeared >> step)
-        mag = mag & ~(smeared >> self.significandBits)
+        mag = mag & ~(smeared >> BF16_SIGNIFICAND_BITS)
         value = torch.where(xi < 0, -mag, mag).to(torch.float64) * self.scale
         # The hardware has no subnormals and flushes below the smallest normal.
         value = torch.where(value.abs() < BF16_MIN_NORMAL, value.new_zeros(()), value)
@@ -336,7 +300,7 @@ class SuryaCast(SuryaOperator):
         safe = torch.where(mag > 0, mag, mag.new_ones(()))
         # ONNX has no Exp2 operator at any opset.
         step = torch.pow(
-            2.0, torch.floor(torch.log2(safe)) - float(self.significandBits - 1)
+            2.0, torch.floor(torch.log2(safe)) - float(BF16_SIGNIFICAND_BITS - 1)
         )
         truncated = torch.floor(safe / step) * step
         value = torch.sign(v) * torch.where(mag > 0, truncated, mag.new_zeros(()))
@@ -349,10 +313,7 @@ class SuryaCast(SuryaOperator):
 
 
 class SuryaDecast(SuryaOperator):
-    """BF16 -> INT8: `round(x * 2**decShift)` with ties to even, then saturate.
-
-    `dec_fp_shift` is one byte for each channel in `surya_nq_mem`.
-    """
+    """BF16 -> INT8: `round(x * 2**decShift)` with ties to even, then saturate."""
 
     def __init__(
         self,
@@ -366,12 +327,8 @@ class SuryaDecast(SuryaOperator):
         shift = torch.as_tensor(decShift).flatten().to(torch.float64)
         self.register_buffer("scale", channelShape(torch.exp2(shift), rank, channelDim))
 
-    @property
-    def limits(self) -> tuple:
-        return (INT8_MIN, INT8_MAX) if self.signed else (UINT8_MIN, UINT8_MAX)
-
     def exactForward(self, x: Tensor) -> Tensor:
-        lo, hi = self.limits
+        lo, hi = (-128, 127) if self.signed else (0, 255)
         scaled = torch.round(x.to(torch.float64) * self.scale)
         return torch.clamp(scaled, lo, hi).to(torch.float32)
 
@@ -381,7 +338,7 @@ class SuryaResidual(SuryaOperator):
 
     `ACCUM_INIT_MODE` 2 loads it with a decast of shift zero, so the writer
     stores the skip at the scale `a * s_x * s_w` of the reader's accumulator.
-    The depthwise unit takes no residual (`ACCUM_INIT_NONE`).
+    The depthwise unit takes no residual.
     """
 
     def exactForward(self, acc: Tensor, skip: Tensor) -> Tensor:

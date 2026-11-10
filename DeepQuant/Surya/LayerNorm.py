@@ -13,8 +13,8 @@ The PACE LayerNorm: the BF16 schedule the sequencer runs on each row.
     rstd = rsqrt(var + eps)
     y    = (x*rstd - mean*rstd) * gamma
 
-Each step is one FMA with one rounding to BF16. The schedule follows the
-Surya golden model. The hardware has no beta, so beta is an Add behind the node.
+Each step is one FMA with one rounding to BF16. The hardware has no beta, so
+beta is an Add behind the node.
 """
 
 from typing import Optional
@@ -26,16 +26,10 @@ from torch import Tensor
 
 from .Kernels import SURYA_DOMAIN
 from .Operators import SuryaOperator, fmaBf16, roundToBf16
-from .Pace import SuryaPwpa, buildTable
-
-LAYERNORM = "LayerNorm"
+from .Pace import SuryaPwpa, buildTable, floatToBf16
 
 # Both sums run on this many interleaved partial sums, one for each FMA stage.
 LN_PARTIALS = 3
-
-
-def _bf16(value: float) -> float:
-    return float(torch.tensor(value, dtype=torch.float32).to(torch.bfloat16))
 
 
 class SuryaLayerNormFunction(torch.autograd.Function):
@@ -48,7 +42,7 @@ class SuryaLayerNormFunction(torch.autograd.Function):
     @staticmethod
     def symbolic(g, out, x, gamma, epsilon):
         node = g.op(
-            f"{SURYA_DOMAIN}::{LAYERNORM}",
+            f"{SURYA_DOMAIN}::LayerNorm",
             g.op("Cast", x, to_i=TensorProto.BFLOAT16),
             g.op("Cast", gamma, to_i=TensorProto.BFLOAT16),
             epsilon_f=epsilon,
@@ -96,29 +90,25 @@ class SuryaLayerNorm(SuryaOperator):
         # `ldexp` is a `pow(2, n)`, which CUDA rounds for some n.
         return approx * torch.exp2(-((exponent - parity) >> 1).to(torch.float64))
 
-    def _schedule(self, x: Tensor) -> Tensor:
+    def _schedule(self, values: Tensor) -> Tensor:
+        x = roundToBf16(values.to(torch.float64))
         ones = torch.ones_like(x)
-        recip = _bf16(1.0 / x.shape[-1])
+        recip = float(floatToBf16(1.0 / x.shape[-1]))
+        eps = float(floatToBf16(self.eps))
         mean = roundToBf16(self._sum(ones, x) * recip)
         d = fmaBf16(ones, x, -mean)
         var = roundToBf16(self._sum(d, d) * recip)
-        rstd = self._rsqrt(
-            fmaBf16(ones[..., :1], var, torch.full_like(var, _bf16(self.eps)))
-        )
+        rstd = self._rsqrt(fmaBf16(ones[..., :1], var, torch.full_like(var, eps)))
         xhat = fmaBf16(x, rstd, roundToBf16(-mean * rstd))
-        return roundToBf16(xhat * self.gamma)
+        return roundToBf16(xhat * self.gamma).to(values.dtype)
 
     def exactForward(self, x: Tensor) -> Tensor:
-        out = self._schedule(roundToBf16(x.to(torch.float64))).to(x.dtype)
+        out = self._schedule(x)
         return out if self.beta is None else out + self.beta
 
     def exportForward(self, x: Tensor) -> Tensor:
         # The schedule has no opset 13 form, so the tracer sees the node only.
-        out = (
-            x
-            if torch.jit.is_tracing()
-            else self._schedule(roundToBf16(x.to(torch.float64))).to(x.dtype)
-        )
+        out = x if torch.jit.is_tracing() else self._schedule(x)
         out = SuryaLayerNormFunction.apply(out, x, self.gamma, self.eps)
         return out if self.beta is None else out + self.beta
 
@@ -126,6 +116,3 @@ class SuryaLayerNorm(SuryaOperator):
         return F.layer_norm(
             x, x.shape[-1:], self.gamma.to(x.dtype), self.beta, self.eps
         )
-
-    def extra_repr(self) -> str:
-        return f"{self.gamma.numel()} columns, eps {self.eps:g}"

@@ -11,7 +11,7 @@ One ONNX node for one accelerator kernel, in the `surya` domain.
     surya::Pointwise    a 1x1 convolution, which maps onto the same array
     surya::Depthwise    the 3x3 depthwise unit
 
-The inputs are the buffers in the order the HAL programs them, and the
+The inputs are the buffers in the order the driver programs them, and the
 attributes are the register fields:
 
     inputs      x, w, S16, B32, shift, C_init, fp_shift, dec_fp_shift, pace,
@@ -36,29 +36,10 @@ from onnx import TensorProto
 from torch import Tensor
 
 SURYA_DOMAIN = "surya"
-
-# `Value.setType` takes a torch dtype.
-_TORCH_DTYPE = {
-    TensorProto.INT8: torch.int8,
-    TensorProto.UINT8: torch.uint8,
-    TensorProto.BFLOAT16: torch.bfloat16,
-}
 SURYA_OPSET_VERSION = 1
 
-# A convolution wider than 1x1 is a GEMM through im2col.
-GEMM, POINTWISE, DEPTHWISE = "Gemm", "Pointwise", "Depthwise"
-
-# The requantization between two layers, which marks a code boundary.
-REQUANT = "Requant"
-
-
-def kernelName(kind: str, kernelShape) -> str:
-    if kind == "depthwise":
-        return DEPTHWISE
-    if kind == "linear":
-        return GEMM
-    return POINTWISE if tuple(kernelShape) == (1, 1) else GEMM
-
+# A tensor this close to the grid, in codes, was written there by a NormQuant.
+ON_GRID = 1e-3
 
 # `symbolic` is static, so a module passes its id and is looked up here.
 _REGISTRY: "weakref.WeakValueDictionary[int, SuryaKernel]" = (
@@ -79,15 +60,9 @@ class SuryaKernelFunction(torch.autograd.Function):
         return out
 
     @staticmethod
-    def outputType(kernel) -> int:
-        """The ONNX element type this kernel writes. NORM_MODE 2 writes BF16."""
-        if kernel.normMode == 2:
-            return TensorProto.BFLOAT16
-        return TensorProto.INT8 if kernel.signed else TensorProto.UINT8
-
-    @staticmethod
     def symbolic(g, kernelId, out, x, *operands):
         kernel = _REGISTRY[kernelId]
+        owner = kernel.owner[0]
         # A configured layer can still lack the accumulator init operand.
         loadsAccumInit = len(operands) > len(kernel.operandNames)
         attributes = {
@@ -98,20 +73,21 @@ class SuryaKernelFunction(torch.autograd.Function):
             "pads_i": list(kernel.pads),
             "dilations_i": list(kernel.dilations),
             "group_i": kernel.group,
-            "ACCUM_INIT_MODE_i": kernel.accumInitMode if loadsAccumInit else 0,
+            "ACCUM_INIT_MODE_i": 2 if loadsAccumInit else 0,
         }
-        if kernel.paceFunction is not None:
+        if owner.suryaTap is not None:
+            pace = owner.suryaTap.pace
             attributes.update(
-                PACE_FUNCTION_s=kernel.paceFunction,
-                PACE_X_MIN_f=kernel.paceXMin,
-                PACE_X_MAX_f=kernel.paceXMax,
-                pace_gain_f=kernel.paceGain,
+                PACE_FUNCTION_s=pace.functionName,
+                PACE_X_MIN_f=float(pace.table.xMin),
+                PACE_X_MAX_f=float(pace.table.xMax),
+                pace_gain_f=pace.gain,
                 # The flat `pace` operand holds (P - 1) + P*(D + 1) values.
-                pace_partitions_i=kernel.pacePartitions,
-                pace_degree_i=kernel.paceDegree,
+                pace_partitions_i=pace.table.partitions,
+                pace_degree_i=pace.table.degree,
             )
         # The float graph around the kernel holds integers: the Casts change no value.
-        signedIn = kernel.owner[0].suryaRequantIn.signed
+        signedIn = owner.suryaRequantIn.signed
         codes = g.op(
             "Cast", x, to_i=TensorProto.INT8 if signedIn else TensorProto.UINT8
         )
@@ -120,10 +96,12 @@ class SuryaKernelFunction(torch.autograd.Function):
             # The array reads the accumulator init as BF16.
             inputs[-1] = g.op("Cast", inputs[-1], to_i=TensorProto.BFLOAT16)
         node = g.op(f"{SURYA_DOMAIN}::{kernel.opName}", codes, *inputs, **attributes)
+        if kernel.normMode == 2:
+            dtype = torch.bfloat16
+        else:
+            dtype = torch.int8 if kernel.signed else torch.uint8
         # The exporter cannot infer the shape of a custom node.
-        node.setType(
-            out.type().with_dtype(_TORCH_DTYPE[SuryaKernelFunction.outputType(kernel)])
-        )
+        node.setType(out.type().with_dtype(dtype))
         return g.op("Cast", node, to_i=TensorProto.FLOAT)
 
 
@@ -143,26 +121,26 @@ class SuryaRequantFunction(torch.autograd.Function):
                 return x
             return g.op("Round", g.op("Div", x, scale))
         codes = g.op(
-            f"{SURYA_DOMAIN}::{REQUANT}",
+            f"{SURYA_DOMAIN}::Requant",
             x,
             scale,
             *fields,
             signed_out_i=int(unit.signed),
-            output_bits_i=unit.bits,
+            output_bits_i=8,
             rounding_s=unit.rounding,
             # `array` is a COMPUTE=0 NormQuant with S16, B32 and shift. `core`
             # is a pass a compute core runs, on an input that is on no code grid.
             unit_s=unit.unit,
         )
-        dtype = TensorProto.INT8 if unit.signed else TensorProto.UINT8
-        codes.setType(out.type().with_dtype(_TORCH_DTYPE[dtype]))
+        dtype = torch.int8 if unit.signed else torch.uint8
+        codes.setType(out.type().with_dtype(dtype))
         value = g.op("Cast", codes, to_i=TensorProto.FLOAT)
         # A layer reads the codes. Any other reader works on the real axis.
         return value if unit.emitsCodes else g.op("Mul", value, scale)
 
 
 class SuryaRequantPoint(nn.Module):
-    """One code boundary: the scale, the rounding mode, and the width.
+    """One 8-bit code boundary: the scale and the rounding mode.
 
     `forward(x, out)` returns `out`, which the boundary computed from `x`.
     `reinterprets` is measured: it is True when no code moved in any batch seen,
@@ -173,7 +151,6 @@ class SuryaRequantPoint(nn.Module):
         self,
         scale: Union[float, np.ndarray, Tensor],
         signed: bool = True,
-        bits: int = 8,
         rounding: str = "floor",
         emitsCodes: bool = True,
     ) -> None:
@@ -181,13 +158,16 @@ class SuryaRequantPoint(nn.Module):
         self.unitId = next(_NEXT_ID)
         _REGISTRY[self.unitId] = self
         self.signed = bool(signed)
-        self.bits = int(bits)
         self.rounding = str(rounding)
         self.emitsCodes = bool(emitsCodes)
         self.fused = False
         # An unmeasured boundary counts as one that quantizes.
         self.reinterprets = False
         self.seen = 0
+        self.moved = 0
+        self.values = 0
+        # In codes. Near zero, the producer wrote the input on this grid.
+        self.offGrid = 0.0
         # Set by `settleCodeBoundaries` when the input measures on this grid.
         self.settled = False
         self.register_buffer(
@@ -238,18 +218,10 @@ class SuryaRequantPoint(nn.Module):
         codes = out if self.emitsCodes else torch.round(out / self.operand_scale)
         free = bool(torch.equal(codes, plain))
         self.reinterprets = free if self.seen == 0 else (self.reinterprets and free)
-        # In codes. Near zero, the producer wrote the input on this grid.
-        self.offGrid = max(
-            getattr(self, "offGrid", 0.0), float((exact - plain).abs().max())
-        )
-        moved = int((codes != plain).sum())
-        self.moved = getattr(self, "moved", 0) + moved
-        self.values = getattr(self, "values", 0) + int(codes.numel())
+        self.offGrid = max(self.offGrid, float((exact - plain).abs().max()))
+        self.moved += int((codes != plain).sum())
+        self.values += int(codes.numel())
         self.seen += 1
-
-    def extra_repr(self) -> str:
-        kind = "reads codes back" if self.reinterprets else "requantizes"
-        return f"{self.bits} bits, {self.rounding}, signed={self.signed}, {kind}"
 
 
 class SuryaRequantBoundary(nn.Module):
@@ -259,17 +231,13 @@ class SuryaRequantBoundary(nn.Module):
     stop at this module, or the marker leaves no node.
     """
 
-    def __init__(self, inner: nn.Module, point: "SuryaRequantPoint") -> None:
+    def __init__(self, inner: nn.Module, point: SuryaRequantPoint) -> None:
         super().__init__()
         self.inner = inner
         self.point = point
 
     def forward(self, x: Tensor) -> Tensor:
         return self.point(x, self.inner(x))
-
-
-def _buffer(values, dtype=torch.float32) -> Tensor:
-    return torch.as_tensor(np.asarray(values), dtype=dtype)
 
 
 def _asInt(values: Tensor, dtype: torch.dtype) -> Tensor:
@@ -288,7 +256,8 @@ def _asInt(values: Tensor, dtype: torch.dtype) -> Tensor:
 class SuryaKernel(nn.Module):
     """One accelerator kernel: the operands, the register fields, and the maths.
 
-    `compute` is the unfused datapath. A fused `forward` names its result as one node.
+    `forward` runs the datapath stage by stage. Fused, it names the result as
+    one node.
     """
 
     def __init__(
@@ -302,19 +271,11 @@ class SuryaKernel(nn.Module):
         pads,
         dilations,
         group: int,
-        paceFunction: Optional[str] = None,
-        paceXMin: float = 0.0,
-        paceXMax: float = 0.0,
-        paceGain: float = 1.0,
-        pacePartitions: int = 0,
-        paceDegree: int = 0,
-        accumInitMode: int = 0,
     ) -> None:
         super().__init__()
         self.owner = [owner]  # in a list, so it is not a child module
         self.kernelId = next(_NEXT_ID)
         _REGISTRY[self.kernelId] = self
-        self.opName = kernelName(kind, kernelShape)
         self.normMode = int(normMode)
         self.signed = bool(signed)
         self.kernelShape = tuple(int(v) for v in kernelShape)
@@ -322,43 +283,22 @@ class SuryaKernel(nn.Module):
         self.pads = tuple(int(v) for v in pads)
         self.dilations = tuple(int(v) for v in dilations)
         self.group = int(group)
-        self.paceFunction = paceFunction
-        self.paceXMin = float(paceXMin)
-        self.paceXMax = float(paceXMax)
-        self.paceGain = float(paceGain)
-        self.pacePartitions = int(pacePartitions)
-        self.paceDegree = int(paceDegree)
-        self.accumInitMode = int(accumInitMode)
         self.fused = False
-        self._registerOperands()
+        # A convolution wider than 1x1 is a GEMM through im2col.
+        if kind == "depthwise":
+            self.opName = "Depthwise"
+        elif kind == "linear" or self.kernelShape != (1, 1):
+            self.opName = "Gemm"
+        else:
+            self.opName = "Pointwise"
 
-    def compute(self, x: Tensor, init: Optional[Tensor] = None) -> Tensor:
-        """The datapath, stage by stage."""
-        owner = self.owner[0]
-        acc = owner.suryaGuard(
-            owner.wrappedInnerForwardImpl(x, owner.suryaWeightInt8, None)
-        )
-        if init is not None:
-            acc = owner.suryaResidual(acc, init)
-        out = owner.suryaNormQuant(acc)
-        if owner.suryaTap is not None:
-            return owner.suryaTap(out)
-        if owner.suryaCast is not None:
-            return owner.suryaCast(out)
-        return out
-
-    def _registerOperands(self) -> None:
-        """Hold every field the driver programs as a buffer of this module.
-
-        The tracer maps what the module owns: an autograd.Function applied to
-        any other tensor fails with `_Map_base::at`.
-        """
-        owner = self.owner[0]
         nq = owner.suryaNormQuant
         channels = nq.s16.numel()
         tap = owner.suryaTap
         cast = owner.suryaCast if tap is None else tap.cast
 
+        # Every field is a buffer of this module: an autograd.Function applied
+        # to a tensor the traced module does not own fails with `_Map_base::at`.
         names = ["w", "S16", "B32", "shift", "C_init"]
         self.register_buffer("operand_w", _asInt(owner.suryaWeightInt8, torch.int8))
         self.register_buffer("operand_S16", _asInt(nq.s16, torch.int16))
@@ -385,9 +325,8 @@ class SuryaKernel(nn.Module):
                 "operand_dec_fp_shift", _asInt(shift.expand(channels), torch.uint8)
             )
             names.append("dec_fp_shift")
-            self.register_buffer(
-                "operand_pace", _buffer(tap.pace.table.packed()).to(nq.s16.device)
-            )
+            packed = torch.as_tensor(tap.pace.table.packed(), dtype=torch.float32)
+            self.register_buffer("operand_pace", packed.to(nq.s16.device))
             names.append("pace")
         self.operandNames = tuple(names)
 
@@ -395,19 +334,22 @@ class SuryaKernel(nn.Module):
         owner = self.owner[0]
         # The skip arrives on the real axis and the accumulator loads integers.
         init = None if skip is None else owner.suryaSkipToCodes(skip)
-        out = self.compute(x, init)
+        acc = owner.suryaGuard(
+            owner.wrappedInnerForwardImpl(x, owner.suryaWeightInt8, None)
+        )
+        if init is not None:
+            acc = owner.suryaResidual(acc, init)
+        out = owner.suryaNormQuant(acc)
+        if owner.suryaTap is not None:
+            out = owner.suryaTap(out)
+        elif owner.suryaCast is not None:
+            out = owner.suryaCast(out)
         if not self.fused:
             return out
         operands = [getattr(self, f"operand_{n}") for n in self.operandNames]
         if init is not None:
             operands.append(init)
         return SuryaKernelFunction.apply(self.kernelId, out, x, *operands)
-
-    def extra_repr(self) -> str:
-        text = f"{self.opName}, NORM_MODE {self.normMode}"
-        if self.paceFunction is not None:
-            text += f", PACE {self.paceFunction} on [{self.paceXMin}, {self.paceXMax}]"
-        return text
 
 
 def fuseKernels(model: nn.Module, enabled: bool = True) -> int:
@@ -420,10 +362,6 @@ def fuseKernels(model: nn.Module, enabled: bool = True) -> int:
     return count
 
 
-# A tensor this close to the grid, in codes, was written there by a NormQuant.
-ON_GRID = 1e-3
-
-
 def kernelSummary(model: nn.Module) -> dict:
     """How many nodes of each name and output mode the model holds."""
     counts: dict = {}
@@ -433,13 +371,13 @@ def kernelSummary(model: nn.Module) -> dict:
             counts[key] = counts.get(key, 0) + 1
         elif isinstance(module, SuryaRequantPoint):
             if module.seen == 0:
-                key = f"{REQUANT} (never measured)"
+                key = "Requant (never measured)"
             elif module.reinterprets:
                 key = "code boundary, no pass"
-            elif getattr(module, "offGrid", 1.0) < ON_GRID:
+            elif module.offGrid < ON_GRID:
                 key = "on the grid already, but a code still moves"
             else:
-                key = REQUANT
+                key = "Requant"
             counts[key] = counts.get(key, 0) + 1
     return counts
 
@@ -481,11 +419,11 @@ def boundaryReport(model: nn.Module) -> str:
         ("free", lambda p: p.reinterprets),
         (
             "on the grid, a code still moves",
-            lambda p: not p.reinterprets and getattr(p, "offGrid", 1.0) < ON_GRID,
+            lambda p: not p.reinterprets and p.offGrid < ON_GRID,
         ),
         (
             "really requantizes",
-            lambda p: not p.reinterprets and getattr(p, "offGrid", 1.0) >= ON_GRID,
+            lambda p: not p.reinterprets and p.offGrid >= ON_GRID,
         ),
     ):
         group = [p for p in points if p.seen and keep(p)]
@@ -496,6 +434,6 @@ def boundaryReport(model: nn.Module) -> str:
         rows.append(
             f"{len(group)} {kind}: {moved} of {values} codes move "
             f"({100 * moved / values:.3f}%), worst off grid "
-            f"{max(getattr(p, 'offGrid', 0.0) for p in group):.2e} codes"
+            f"{max(p.offGrid for p in group):.2e} codes"
         )
     return "\n".join(f"    {r}" for r in rows)
