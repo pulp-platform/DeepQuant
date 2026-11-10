@@ -31,7 +31,8 @@ INT32_MIN, INT32_MAX = -(2**31), 2**31 - 1
 #   store       the truncation to BF16 of a tensor NORM_MODE 2 writes to memory
 #   pace        the piecewise polynomial in place of the function
 #   layernorm   the BF16 schedule in place of a float LayerNorm
-APPROXIMATIONS = ("normquant", "cast", "store", "pace", "layernorm")
+#   softmax     the BF16 schedule in place of a float softmax
+APPROXIMATIONS = ("normquant", "cast", "store", "pace", "layernorm", "softmax")
 
 # BF16 has 1 implicit and 7 explicit mantissa bits. The datapath has no subnormals.
 BF16_SIGNIFICAND_BITS = 8

@@ -24,6 +24,7 @@ from DeepQuant.Surya import (
     SuryaNormQuant,
     SuryaPwpa,
     SuryaResidual,
+    SuryaSoftmax,
     SuryaTap,
     applyRequant,
     assertExportMatchesExact,
@@ -346,3 +347,38 @@ def deepQuantTestInt32NormQuantReturnsFloat64() -> None:
     out = node(torch.tensor([70000.0, -70000.0]))
     assert out.dtype == torch.float64
     assert out.tolist() == [2100000000.0, -2100000000.0]
+
+
+@pytest.mark.SingleLayerTests
+@pytest.mark.parametrize("columns", [16, 64, 256])
+def deepQuantTestSuryaSoftmaxTracksTheFloatSoftmax(columns: int) -> None:
+    """The BF16 steps cost under 0.025 of a probability, and exp is zero at xMin."""
+    torch.manual_seed(10)
+    x = torch.randn(2, 1, 4, columns) * 3.0
+    out = SuryaSoftmax()(x)
+    assert float((out - F.softmax(x, dim=-1)).abs().max()) < 0.025
+    assert SuryaSoftmax()(torch.tensor([0.0, -11.0, -12.0])).tolist() == [1, 0, 0]
+
+
+@pytest.mark.SingleLayerTests
+def deepQuantTestSuryaSoftmaxIdealIsTheFloatSoftmax() -> None:
+    torch.manual_seed(11)
+    x = torch.randn(4, 32)
+    softmax = SuryaSoftmax()
+    assert setIdeal(softmax, ("softmax",)) == 1
+    assert torch.equal(softmax(x), F.softmax(x, dim=-1))
+
+
+@pytest.mark.SingleLayerTests
+def deepQuantTestSuryaSoftmaxInt8StoreIsTheDecast() -> None:
+    """NORM_MODE 4 is a NormQuant of S16 1, so the decast of each row decides."""
+    torch.manual_seed(12)
+    x = torch.randn(3, 40) * 2.0
+    decShift = np.array([7, 8, 9])
+    ones = np.ones(3, dtype=np.int64)
+    unit = SuryaNormQuant(ones, ones * 0, ones * 0, rank=2, channelDim=0)
+    softmax = SuryaSoftmax(decShift=decShift, normQuant=unit)
+    decast = SuryaDecast(decShift, rank=2, channelDim=0)
+    assert torch.equal(softmax(x), decast(SuryaSoftmax()(x)))
+    setIdeal(softmax, ("softmax",))
+    assert torch.equal(softmax(x), decast(F.softmax(x, dim=-1)))

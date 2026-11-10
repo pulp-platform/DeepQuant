@@ -10,6 +10,7 @@ Operators of the Surya accelerator, for the DeepQuant export flow.
     Operators.py        NormQuant, Cast, Decast, Residual
     Pace.py             the piecewise polynomial and the table that drives it
     LayerNorm.py        the PACE LayerNorm
+    Softmax.py          the PACE softmax
     Kernels.py          one `surya` ONNX node for each kernel
     Lowering.py         float scales -> S16, B32, shift, C_init
     Transformations.py  the passes that put a Brevitas model on the datapath
@@ -53,6 +54,7 @@ from .Pace import (
     buildTable,
     scaleTable,
 )
+from .Softmax import SuryaSoftmax
 from .Transformations import (
     SuryaComputeTransformation,
     SuryaLayerSpec,
@@ -85,6 +87,7 @@ __all__ = [
     "SuryaLayerNorm",
     "SuryaPwpa",
     "SuryaResidual",
+    "SuryaSoftmax",
     "SuryaTap",
     "SuryaTapSpec",
     "accumulatorReport",
