@@ -21,6 +21,7 @@ from DeepQuant.Surya import (
     NQ_SCALE_MAX,
     SuryaCast,
     SuryaDecast,
+    SuryaMatMul,
     SuryaNormQuant,
     SuryaPwpa,
     SuryaResidual,
@@ -382,3 +383,46 @@ def deepQuantTestSuryaSoftmaxInt8StoreIsTheDecast() -> None:
     assert torch.equal(softmax(x), decast(SuryaSoftmax()(x)))
     setIdeal(softmax, ("softmax",))
     assert torch.equal(softmax(x), decast(F.softmax(x, dim=-1)))
+
+
+def matMulOperands(scaleA: float, scaleB: float):
+    """An unsigned and a signed tensor on their grids, and their code product."""
+    torch.manual_seed(13)
+    codesA = torch.randint(0, 256, (2, 3, 5, 7)).to(torch.float32)
+    codesB = torch.randint(-128, 128, (2, 3, 7, 4)).to(torch.float32)
+    return codesA * scaleA, codesB * scaleB, codesA @ codesB
+
+
+@pytest.mark.SingleLayerTests
+def deepQuantTestSuryaMatMulMatchesNumpy() -> None:
+    """Two code operands and no weight: the INT8 store is the numpy NormQuant.
+
+    Each column of each of the three heads has its own multiplier.
+    """
+    scaleA, scaleB, scaleOut = 2.0**-8, 0.031, 0.047
+    a, b, acc = matMulOperands(scaleA, scaleB)
+    params = lowerRequant(scaleA, scaleB * np.linspace(0.5, 2.0, 12), scaleOut)
+    matmul = SuryaMatMul(scaleA, scaleB, params, scaleOut=scaleOut, heads=3)
+    perHead = acc.transpose(1, 2).flatten(2).numpy().astype(np.int64)
+    want = applyRequant(perHead, params, channelAxis=2) * np.float32(scaleOut)
+    assert np.array_equal(matmul(a, b).transpose(1, 2).flatten(2).numpy(), want)
+    assertExportMatchesExact(matmul.normQuant, acc)
+
+
+@pytest.mark.SingleLayerTests
+def deepQuantTestSuryaMatMulBf16StoreTruncates() -> None:
+    """With `fpShift` the NormQuant keeps INT32 and the cast writes BF16."""
+    scaleA, scaleB, fpShift = 2.0**-8, 0.031, 14
+    a, b, acc = matMulOperands(scaleA, scaleB)
+    params = lowerRequant(scaleA, [scaleB], 2.0**-fpShift)
+    matmul = SuryaMatMul(scaleA, scaleB, params, fpShift=fpShift, heads=3)
+    out, exact = matmul(a, b), (a @ b).abs()
+    assert torch.equal(out, out.to(torch.bfloat16).to(torch.float32))
+    # The NormQuant floors by less than one code, the cast truncates by less
+    # than one BF16 step.
+    assert bool((out.abs() <= exact * (1 + 1e-4) + 2.0**-fpShift).all())
+    assert bool((out.abs() >= exact * (1 - 2.0**-7) - 2.0**-fpShift).all())
+    assertExportMatchesExact(matmul.normQuant, acc)
+    assertExportMatchesExact(matmul.store, matmul.normQuant(acc))
+    assert setIdeal(matmul, ("normquant", "store")) == 2
+    assert float((matmul(a, b) - a @ b).abs().max()) < 2.0**-fpShift + 1e-5

@@ -172,6 +172,53 @@ class SuryaTap(nn.Module):
         return self.decast(self.pace(self.cast(x)))
 
 
+class SuryaMatMul(nn.Module):
+    """`a @ b` on the codes of two activations, then the NormQuant.
+
+    With `fpShift` the NormQuant keeps INT32 and the cast writes BF16, NORM_MODE
+    2. Without it the NormQuant writes INT8 codes and the result is
+    `codes * scaleOut`. Each of the `heads` on dimension -3 is one job: `params`
+    holds one entry for the whole result, or one for each column of each head.
+    """
+
+    def __init__(
+        self,
+        scaleA: float,
+        scaleB: float,
+        params: RequantParams,
+        scaleOut: float = 1.0,
+        fpShift: Optional[int] = None,
+        heads: int = 1,
+    ) -> None:
+        super().__init__()
+        self.toCodesA = ScaleToCodes(scaleA)
+        self.toCodesB = ScaleToCodes(scaleB)
+        self.guard = AccumulatorGuard()
+        self.normQuant = SuryaNormQuant(
+            params.s16,
+            params.b32,
+            params.shift,
+            outputBits=8 if fpShift is None else 32,
+            rank=1,
+            channelDim=0,
+            cInit=params.cInit,
+            multiplier=params.multiplier,
+        )
+        # The fields run over the columns, dimension -1, of each head.
+        for name, field in self.normQuant.named_buffers():
+            if heads > 1 and field.numel() > 1:
+                setattr(self.normQuant, name, field.reshape(heads, 1, -1))
+        if fpShift is None:
+            self.store = CodesToScale(scaleOut)
+        else:
+            self.store = SuryaCast(fpShift, rank=1, channelDim=0)
+            self.store.approximation = "store"
+
+    def forward(self, a: Tensor, b: Tensor) -> Tensor:
+        acc = self.guard(torch.matmul(self.toCodesA(a), self.toCodesB(b)))
+        return self.store(self.normQuant(acc))
+
+
 def roundingName(proxy: nn.Module) -> str:
     """The rounding mode of a quantizer, from its `float_to_int_impl` class."""
     impl = proxy

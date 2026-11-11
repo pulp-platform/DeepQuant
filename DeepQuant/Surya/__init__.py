@@ -58,6 +58,7 @@ from .Softmax import SuryaSoftmax
 from .Transformations import (
     SuryaComputeTransformation,
     SuryaLayerSpec,
+    SuryaMatMul,
     SuryaTap,
     SuryaTapSpec,
     accumulatorReport,
@@ -82,6 +83,7 @@ __all__ = [
     "SuryaComputeTransformation",
     "SuryaDecast",
     "SuryaLayerSpec",
+    "SuryaMatMul",
     "SuryaNormQuant",
     "SuryaOperator",
     "SuryaLayerNorm",
