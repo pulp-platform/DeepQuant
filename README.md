@@ -2,7 +2,7 @@
 
 A library for true-quantization and optimization of neural networks.
 
-Deeploy is developed as part of the PULP project, a joint effort between ETH Zurich and the University of Bologna.
+DeepQuant is developed as part of the PULP project, a joint effort between ETH Zurich and the University of Bologna.
 
 ## License
 
@@ -10,9 +10,14 @@ Unless specified otherwise in the respective file headers, all code checked into
 
 ## Installation
 
-Start by creating a new env with `Python 3.11` or higher. Then clone the repo and install the library as an editable package with:
+Start by creating a new env with `Python 3.11`. Then clone the repo and install the library as an editable package with:
 ```
 pip install -e .
+```
+
+If you use `uv`, a lock file is provided, and you can simply run `uv sync` to create the appropriate `venv`. Then use `uv run <your-command>` to run anything in the created `venv`. For instance, to run all tests on the `venv` created by `uv` you can run:
+```
+uv run pytest
 ```
 
 ## Running Tests

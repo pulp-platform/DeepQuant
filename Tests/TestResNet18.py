@@ -5,6 +5,7 @@
 # Federico Brancasi <fbrancasi@ethz.ch>
 
 
+from email.mime import base
 import pytest
 import torch
 import torch.nn as nn
@@ -120,6 +121,16 @@ def deepQuantTestResnet18() -> None:
     torch.manual_seed(42)
 
     quantizedModel = prepareResnet18Model()
-    sampleInput = torch.randn(1, 3, 224, 224)
 
-    exportBrevitas(quantizedModel, sampleInput, debug=True)
+    # sampleInput = torch.randn(1, 3, 224, 224)
+    sampleInput = torch.randint(low=-4, high=4, size=(1, 3, 224, 224))
+
+    exportedModel = exportBrevitas(quantizedModel, sampleInput, stricTesting=False, debug=True)
+
+    quantizedModel = prepareResnet18Model()
+
+    trueQuantizedPrediction = torch.argmax(exportedModel(sampleInput)).item()
+    fakeQuantizedPrediction = torch.argmax(quantizedModel(sampleInput)).item()
+
+    assert fakeQuantizedPrediction == trueQuantizedPrediction, "Error: Network predicted different labels"
+
