@@ -1,8 +1,6 @@
 # Copyright 2025 ETH Zurich and University of Bologna.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Federico Brancasi <fbrancasi@ethz.ch>
 
 
 import pytest
@@ -98,7 +96,7 @@ class SimpleQuantCNN(nn.Module):
 
 
 @pytest.mark.ModelTests
-def deepQuantTestSimpleCNN() -> None:
+def deepQuantTestSimpleCNNChannelWise() -> None:
     
     torch.manual_seed(42)
 

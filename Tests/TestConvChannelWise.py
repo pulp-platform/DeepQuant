@@ -1,9 +1,6 @@
 # Copyright 2025 ETH Zurich and University of Bologna.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Victor Jung <jungvi@iis.ee.ethz.ch>
-# Federico Brancasi <fbrancasi@ethz.ch>
 
 import pytest
 import torch
@@ -50,7 +47,7 @@ class QuantConvNet(nn.Module):
 
 
 @pytest.mark.SingleLayerTests
-def deepQuantTestConv() -> None:
+def deepQuantTestConvChannelWise() -> None:
     
     torch.manual_seed(42)
 
