@@ -9,7 +9,11 @@ import torch
 import torch.nn as nn
 
 import brevitas.nn as qnn
-from brevitas.quant.scaled_int import Int8ActPerTensorFloat, Int32Bias
+from brevitas.quant.scaled_int import (
+    Int8ActPerTensorFloat,
+    Int8WeightPerChannelFloat,
+    Int32Bias,
+)
 
 from DeepQuant.ExportBrevitas import exportBrevitas
 from DeepQuant.QuantManipulation.QuantDequantNodes import Dequant, Quant
@@ -190,6 +194,34 @@ class UpstreamQuantCNN(nn.Module):
         return self.classifier(x)
 
 
+class PerChannelCNN(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.inputQuant = qnn.QuantIdentity(return_quant_tensor=True)
+        self.conv = qnn.QuantConv2d(
+            1,
+            8,
+            3,
+            padding=1,
+            bias=True,
+            weight_quant=Int8WeightPerChannelFloat,
+            bias_quant=Int32Bias,
+            return_quant_tensor=True,
+        )
+        self.relu = qnn.QuantReLU(return_quant_tensor=True)
+        self.classifier = qnn.QuantLinear(
+            8 * 8 * 8,
+            10,
+            bias=True,
+            weight_quant=Int8WeightPerChannelFloat,
+            input_quant=Int8ActPerTensorFloat,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.relu(self.conv(self.inputQuant(x)))
+        return self.classifier(x.view(x.size(0), -1))
+
+
 @pytest.mark.SingleLayerTests
 def deepQuantTestUpstreamInputQuant() -> None:
     assertIntegerLayers(export(UpstreamInputQuantNet(), torch.randn(1, 4, 16)), 1)
@@ -228,3 +260,8 @@ def deepQuantTestInputReshape() -> None:
 @pytest.mark.ModelTests
 def deepQuantTestUpstreamQuantCNN() -> None:
     assertIntegerLayers(export(UpstreamQuantCNN(), torch.randn(1, 1, 8, 8)), 2)
+
+
+@pytest.mark.SingleLayerTests
+def deepQuantTestPerChannelWeights() -> None:
+    assertIntegerLayers(export(PerChannelCNN(), torch.randn(1, 1, 8, 8)), 2)

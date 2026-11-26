@@ -85,6 +85,12 @@ def uniqueName(fxModel: fx.GraphModule, name: str) -> str:
     return candidate
 
 
+def toChannels(value: Any, shape: Tuple[int, ...]) -> Any:
+    if isinstance(value, torch.Tensor) and value.numel() > 1:
+        return value.reshape(shape)
+    return value
+
+
 def fetchAttr(module: Any, target: str) -> Any:
     for part in target.split("."):
         module = getattr(module, part)
@@ -132,6 +138,8 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
             )
             continue
 
+        layer = fxModel.get_submodule(node.target.rsplit(".", 1)[0])
+        shape = (-1,) + (1,) * (layer.weight.dim() - 2)
         inputMod = fxModel.get_submodule(inputDequant.target)
         weightMod = fxModel.get_submodule(weightDequant.target)
         if biasDequant is not None:
@@ -145,15 +153,15 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
             isZero(inputMod.zero_point)
             and isZero(weightMod.zero_point)
             and isScalar(inputMod.scale)
-            and isScalar(weightMod.scale)
         ):
             reference = weightMod
             scale, zeroPoint, bitWidth = inputMod.scale * weightMod.scale, 0.0, 32.0
         else:
             warnings.warn(
-                f"Dequant not moved past {node.target}: no quantized bias and no per-tensor scales."
+                f"Dequant not moved past {node.target}: no quantized bias, and its zero points or input scale are not supported."
             )
             continue
+        scale, zeroPoint = toChannels(scale, shape), toChannels(zeroPoint, shape)
 
         quantInput = inputDequant.args[0]
         for user in list(inputDequant.users):
@@ -188,8 +196,6 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
         output = newDequantNode
 
         if floatBias is not None:
-            layer = fxModel.get_submodule(node.target.rsplit(".", 1)[0])
-            shape = (-1,) + (1,) * (layer.weight.dim() - 2)
             with graph.inserting_after(newDequantNode):
                 if floatBias.op == "get_attr":
                     biasName = uniqueName(fxModel, baseName + "_float_bias")
