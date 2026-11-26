@@ -23,6 +23,7 @@ jobs:
           submodules: recursive
       - name: Install DeepQuant in existing venv
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           uv pip install -e .
 
   single-layer-tests:
@@ -36,6 +37,7 @@ jobs:
           submodules: recursive
       - name: Install DeepQuant in existing venv
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           uv pip install -e .
       - name: Run Tests
         run: |
@@ -52,6 +54,7 @@ jobs:
           submodules: recursive
       - name: Install DeepQuant in existing venv
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           uv pip install -e .
       - name: Run Tests
         run: |
