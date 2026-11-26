@@ -61,6 +61,5 @@ def quantActivationForward(self: QuantNonLinearActLayer, inp: Tensor) -> Tensor:
         output = self.wrappedActImpl(quantInput)
     else:
         output = quantInput
-        import IPython; IPython.embed()
     quantOutput = self.act_quant(output) if self.act_quant is not None else output
     return quantOutput

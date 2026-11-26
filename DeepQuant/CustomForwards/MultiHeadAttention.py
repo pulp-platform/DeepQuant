@@ -6,6 +6,8 @@
 
 
 import math
+from typing import Optional, Tuple
+
 import torch
 import torch.nn.functional as F
 from torch import Tensor
@@ -13,8 +15,12 @@ from brevitas.nn.quant_mha import QuantMultiheadAttention
 
 
 def unrolledQuantMhaForward(
-    self: QuantMultiheadAttention, query: Tensor, key: Tensor, value: Tensor
-) -> Tensor:
+    self: QuantMultiheadAttention,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    need_weights: bool = True,
+) -> Tuple[Tensor, Optional[Tensor]]:
     """
     Export-friendly forward that explicitly unrolls the multi-head logic.
 
@@ -27,14 +33,22 @@ def unrolledQuantMhaForward(
 
     Args:
         self: The QuantMultiheadAttention instance.
-        query: The query tensor of shape [sequence_len, batch_size, embed_dim].
+        query: The query tensor of shape [sequence_len, batch_size, embed_dim],
+            or [batch_size, sequence_len, embed_dim] if batch_first is set.
         key: The key tensor, same shape as query.
         value: The value tensor, same shape as query.
+        need_weights: If True, also return the attention weights averaged over heads.
 
     Returns:
-        A torch.Tensor of shape [sequence_len, batch_size, embed_dim]
-        after the unrolled MHA steps.
+        The attention output, in the layout of query, and the averaged attention
+        weights of shape [batch_size, sequence_len, sequence_len], or None.
     """
+    if self.batch_first:
+        # The steps below use [sequence_len, batch_size, embed_dim]
+        query = query.permute(1, 0, 2)
+        key = key.permute(1, 0, 2)
+        value = value.permute(1, 0, 2)
+
     # 1) Q, K, V projections
     qOut = self.q_proj(query)
     kOut = self.k_proj(key)
@@ -84,4 +98,14 @@ def unrolledQuantMhaForward(
     )
 
     attnOutput = self.out_proj(attnOutput)
-    return attnOutput
+
+    if self.batch_first:
+        attnOutput = attnOutput.permute(1, 0, 2)
+
+    if need_weights:
+        attnWeights = torch.mean(
+            attnWeights.view(batchSize, self.num_heads, seqLen, seqLen), dim=1
+        )
+    else:
+        attnWeights = None
+    return attnOutput, attnWeights
