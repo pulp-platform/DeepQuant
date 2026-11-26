@@ -22,6 +22,7 @@ By the end, the linear operation is in the integer domain, and the final dequant
 """
 
 import operator
+import warnings
 from typing import Any, List, Optional, Tuple
 
 import torch
@@ -126,8 +127,9 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
         floatBias = bias if bias is not None and biasDequant is None else None
 
         if inputDequant is None or weightDequant is None:
-            if debug:
-                print(f"Skipping {node.target}: input or weight is not dequantized.")
+            warnings.warn(
+                f"Dequant not moved past {node.target}: its input or weight is not dequantized."
+            )
             continue
 
         inputMod = fxModel.get_submodule(inputDequant.target)
@@ -148,10 +150,9 @@ def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.Grap
             reference = weightMod
             scale, zeroPoint, bitWidth = inputMod.scale * weightMod.scale, 0.0, 32.0
         else:
-            if debug:
-                print(
-                    f"Skipping {node.target}: no bias dequant and no per-tensor scales."
-                )
+            warnings.warn(
+                f"Dequant not moved past {node.target}: no quantized bias and no per-tensor scales."
+            )
             continue
 
         quantInput = inputDequant.args[0]
