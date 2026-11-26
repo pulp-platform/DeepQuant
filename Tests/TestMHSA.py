@@ -22,11 +22,12 @@ from brevitas.quant.scaled_int import (
 
 class QuantMHSANet(nn.Module):
 
-    def __init__(self, embed_dim: int, num_heads: int) -> None:
+    def __init__(self, embed_dim: int, num_heads: int, batch_first: bool = False) -> None:
         """
         Args:
             embed_dim: The dimension of each embedding vector.
             num_heads: The number of attention heads.
+            batch_first: Whether inputs are [batch_size, sequence_len, embed_dim].
         """
         super().__init__()
         self.inputQuant = qnn.QuantIdentity(return_quant_tensor=True)
@@ -36,7 +37,7 @@ class QuantMHSANet(nn.Module):
             dropout=0.0,
             bias=True,
             packed_in_proj=False,  # separate Q, K, V
-            batch_first=False,  # expects (sequence, batch, embed_dim)
+            batch_first=batch_first,
             in_proj_input_quant=Int8ActPerTensorFloat,
             in_proj_weight_quant=Int8WeightPerTensorFloat,
             in_proj_bias_quant=Int32Bias,
@@ -55,14 +56,14 @@ class QuantMHSANet(nn.Module):
         Forward pass that first quantizes the input, then applies multi-head attention.
 
         Args:
-            x: Input tensor of shape [sequence_len, batch_size, embed_dim].
+            x: Input tensor of shape [sequence_len, batch_size, embed_dim],
+                or [batch_size, sequence_len, embed_dim] with batch_first.
 
         Returns:
-            A tuple (output, None) as per the Brevitas MHA API, where output has shape
-            [sequence_len, batch_size, embed_dim].
+            The attention output, in the layout of x.
         """
         x = self.inputQuant(x)
-        out = self.mha(x, x, x)
+        out, _ = self.mha(x, x, x)
         return out
 
 
@@ -73,5 +74,16 @@ def deepQuantTestMHSA() -> None:
 
     model = QuantMHSANet(embed_dim=16, num_heads=4).eval()
     sampleInput = torch.randn(10, 2, 16)
+
+    exportBrevitas(model, sampleInput, debug=True)
+
+
+@pytest.mark.SingleLayerTests
+def deepQuantTestMHSABatchFirst() -> None:
+
+    torch.manual_seed(42)
+
+    model = QuantMHSANet(embed_dim=16, num_heads=4, batch_first=True).eval()
+    sampleInput = torch.randn(2, 10, 16)
 
     exportBrevitas(model, sampleInput, debug=True)
