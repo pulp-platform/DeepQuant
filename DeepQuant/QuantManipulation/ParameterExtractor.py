@@ -37,7 +37,7 @@ def safe_get_scale(quant_obj: Any) -> Any:
         quant_obj: The quant proxy object.
 
     Returns:
-        The scale as a float if available, otherwise None.
+        The scale as a float, or a tensor if per-channel, otherwise None.
     """
     if quant_obj is None:
         return None
@@ -45,7 +45,7 @@ def safe_get_scale(quant_obj: Any) -> Any:
     if maybe_scale is None:
         return None
     if isinstance(maybe_scale, torch.Tensor):
-        return maybe_scale.item()
+        return maybe_scale.item() if maybe_scale.numel() == 1 else maybe_scale.detach()
     elif isinstance(maybe_scale, float):
         return maybe_scale
     try:
@@ -62,7 +62,7 @@ def safe_get_zero_point(quant_obj: Any) -> Any:
         quant_obj: The quant proxy object.
 
     Returns:
-        The zero_point as a float if available, otherwise None.
+        The zero_point as a float, or a tensor if per-channel, otherwise None.
     """
     if quant_obj is None:
         return None
@@ -74,7 +74,7 @@ def safe_get_zero_point(quant_obj: Any) -> Any:
     if maybe_zp is None:
         return None
     if isinstance(maybe_zp, torch.Tensor):
-        return maybe_zp.item()
+        return maybe_zp.item() if maybe_zp.numel() == 1 else maybe_zp.detach()
     elif isinstance(maybe_zp, float):
         return maybe_zp
     try:

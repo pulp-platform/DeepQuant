@@ -9,20 +9,27 @@ This module provides a function to unify the linear dequant nodes (input, weight
 into a single final dequant node after the linear wrappedInnerForwardImpl.
 
 Key steps:
-  1) Rewire bias quant to reference the quant nodes of input/weight instead of their dequant.
-  2) Rewire the linear's wrappedInnerForwardImpl so it references bias_quant instead of bias_dequant.
-  3) Clone the bias dequant parameters (scale/zero_point/bit_width) to a new Dequant node
-     placed after the linear, removing the old bias_dequant node from the graph.
-  4) Remove the input_dequant and weight_dequant nodes as well, once they have no more users.
-  5) Recompile the FX GraphModule so that the generated forward code no longer references
+  1) Rewire the linear's wrappedInnerForwardImpl to the quant nodes of its input, weight and
+     bias, looking through shape-only ops between the input dequant and the linear.
+  2) Insert one Dequant node after the linear. It reuses the bias dequant parameters, or uses
+     input scale times weight scale when the bias is not quantized; an unquantized bias is
+     then added after the Dequant.
+  3) Remove the old dequant nodes once they have no more users.
+  4) Recompile the FX GraphModule so that the generated forward code no longer references
      the removed nodes.
 
 By the end, the linear operation is in the integer domain, and the final dequant occurs only once.
 """
 
+import operator
+import warnings
+from typing import Any, List, Optional, Tuple
+
+import torch
 import torch.fx as fx
 
 from DeepQuant.QuantManipulation.QuantDequantNodes import Dequant
+from DeepQuant.QuantManipulation.QuantNodesDivider import quant_tensor_value
 
 
 BLUE = "\033[94m"
@@ -30,18 +37,76 @@ ENDC = "\033[0m"
 CHECK = " ✓"
 ARROW = " ›"
 
+SHAPE_METHODS = ("view", "reshape", "flatten")
 
-def unifyLinearDequants(
-    fxModel: fx.GraphModule, debug: bool = False
-) -> fx.GraphModule:
+
+def isDequant(fxModel: fx.GraphModule, node: Any) -> bool:
+    return getattr(node, "op", None) == "call_module" and isinstance(
+        fxModel.get_submodule(node.target), Dequant
+    )
+
+
+def isShapeOp(node: Any) -> bool:
+    op = getattr(node, "op", None)
+    if op == "call_method":
+        return node.target in SHAPE_METHODS
+    return op == "call_function" and node.target in (
+        torch.flatten,
+        torch.reshape,
+        quant_tensor_value,
+    )
+
+
+def findDequant(
+    fxModel: fx.GraphModule, node: Any
+) -> Tuple[Optional[fx.Node], List[fx.Node]]:
+    chain = []
+    while not isDequant(fxModel, node):
+        if not isShapeOp(node):
+            return None, []
+        chain.append(node)
+        node = node.args[0]
+    return node, chain[::-1]
+
+
+def isZero(value: Any) -> bool:
+    return value is not None and bool(torch.all(torch.as_tensor(value) == 0))
+
+
+def isScalar(value: Any) -> bool:
+    return value is not None and torch.as_tensor(value).numel() == 1
+
+
+def uniqueName(fxModel: fx.GraphModule, name: str) -> str:
+    candidate, index = name, 1
+    while hasattr(fxModel, candidate):
+        index += 1
+        candidate = f"{name}_{index}"
+    return candidate
+
+
+def toChannels(value: Any, shape: Tuple[int, ...]) -> Any:
+    if isinstance(value, torch.Tensor) and value.numel() > 1:
+        return value.reshape(shape)
+    return value
+
+
+def fetchAttr(module: Any, target: str) -> Any:
+    for part in target.split("."):
+        module = getattr(module, part)
+    return module
+
+
+def unifyLinearDequants(fxModel: fx.GraphModule, debug: bool = False) -> fx.GraphModule:
     """
     Unify the linear dequant nodes (input, weight, bias) into a single final dequant node.
 
     This transformation:
       * Redirects the linear's inputs to the quant nodes (removing input_dequant, weight_dequant).
-      * Updates bias_quant to reference those same quant nodes, removing references to dequant.
-      * Creates a new Dequant node after the linear operation, reusing the bias dequant parameters.
-      * Erases the old dequant nodes from the graph and submodules.
+      * Uses the quantized bias, or adds an unquantized bias after the new Dequant node.
+      * Creates a new Dequant node after the linear operation, with the bias dequant parameters
+        or with input scale times weight scale.
+      * Erases the old dequant nodes that have no users left.
       * Recompiles the graph so the final forward does not reference removed nodes.
 
     Args:
@@ -58,114 +123,102 @@ def unifyLinearDequants(
         print(f"{BLUE}{ARROW} Starting Modification of Dequant Nodes...{ENDC}")
 
     for node in allNodes:
-        # Identify the "wrappedInnerForwardImpl" call for linear
         if node.op != "call_module" or "wrappedInnerForwardImpl" not in node.target:
             continue
 
-        # Typically the node args are:
-        #   (linear1_input_dequant, linear1_weight_dequant, linear1_bias_dequant)
-        oldArgs = list(node.args)
+        inputDequant, inputChain = findDequant(fxModel, node.args[0])
+        weightDequant = node.args[1] if isDequant(fxModel, node.args[1]) else None
+        bias = node.args[2] if len(node.args) > 2 else None
+        biasDequant = bias if isDequant(fxModel, bias) else None
+        floatBias = bias if bias is not None and biasDequant is None else None
 
-        biasDequantNode = None
-        inputDequantNode = None
-        weightDequantNode = None
-
-        newLinArgs = []
-
-        # Collect and rewire the linear's arguments
-        for arg in oldArgs:
-            if arg.op == "call_module" and "dequant" in arg.target.lower():
-                if "bias_dequant" in arg.target.lower():
-                    biasDequantNode = arg
-                elif "weight_dequant" in arg.target.lower():
-                    weightDequantNode = arg
-                else:
-                    inputDequantNode = arg
-
-                # Replace the dequant input with the corresponding quant node
-                quantNode = arg.args[0]
-                newLinArgs.append(quantNode)
-            else:
-                newLinArgs.append(arg)
-
-        node.args = tuple(newLinArgs)
-
-        if biasDequantNode is None:
-            # This would be unusual if a linear is missing bias or missing a bias_dequant
-            if debug:
-                print(f"Skipping {node.target}: no biasDequantNode found.")
+        if inputDequant is None or weightDequant is None:
+            warnings.warn(
+                f"Dequant not moved past {node.target}: its input or weight is not dequantized."
+            )
             continue
 
-        # The bias_quant node that feeds biasDequantNode might reference input/weight dequant
-        # We rewrite it so that it references the input/weight quant nodes
-        biasQuantNode = biasDequantNode.args[0]
-        if (
-            biasQuantNode.op == "call_module"
-            and "bias_quant" in biasQuantNode.target.lower()
+        layer = fxModel.get_submodule(node.target.rsplit(".", 1)[0])
+        shape = (-1,) + (1,) * (layer.weight.dim() - 2)
+        inputMod = fxModel.get_submodule(inputDequant.target)
+        weightMod = fxModel.get_submodule(weightDequant.target)
+        if biasDequant is not None:
+            reference = fxModel.get_submodule(biasDequant.target)
+            scale, zeroPoint, bitWidth = (
+                reference.scale,
+                reference.zero_point,
+                reference.bit_width,
+            )
+        elif (
+            isZero(inputMod.zero_point)
+            and isZero(weightMod.zero_point)
+            and isScalar(inputMod.scale)
         ):
-            new_bq_args = list(biasQuantNode.args)
-            # Typically new_bq_args = [bias, input_dequant, weight_dequant]
-            for i, bq_arg in enumerate(new_bq_args):
-                if bq_arg.op == "call_module" and "dequant" in bq_arg.target.lower():
-                    new_bq_args[i] = bq_arg.args[0]  # The corresponding quant node
-            biasQuantNode.args = tuple(new_bq_args)
+            reference = weightMod
+            scale, zeroPoint, bitWidth = inputMod.scale * weightMod.scale, 0.0, 32.0
         else:
-            if debug:
-                print(
-                    "Warning: Did not find a typical 'bias_quant' node shape in the graph."
+            warnings.warn(
+                f"Dequant not moved past {node.target}: no quantized bias, and its zero points or input scale are not supported."
+            )
+            continue
+        scale, zeroPoint = toChannels(scale, shape), toChannels(zeroPoint, shape)
+
+        quantInput = inputDequant.args[0]
+        for user in list(inputDequant.users):
+            if user.op == "call_method" and user.target in ("size", "dim"):
+                user.replace_input_with(inputDequant, quantInput)
+        for shapeNode in inputChain:
+            with graph.inserting_before(node):
+                quantInput = graph.create_node(
+                    shapeNode.op,
+                    shapeNode.target,
+                    (quantInput,) + tuple(shapeNode.args[1:]),
+                    dict(shapeNode.kwargs),
                 )
-
-        # Erase input_dequant/weight_dequant from the graph
-        # They should now have zero real users
-        for dnode in (inputDequantNode, weightDequantNode):
-            if dnode is not None:
-                # For safety, remove all references
-                for usr in list(dnode.users.keys()):
-                    dnode.users[usr] = None
-                if hasattr(fxModel, dnode.target):
-                    delattr(fxModel, dnode.target)
-                graph.erase_node(dnode)
-
-        # Now we create the final single Dequant node after the linear
-        # by cloning the bias_dequant submodule's parameters
-        oldBiasDequantMod = fxModel.get_submodule(biasDequantNode.target)
-
-        # Construct a new Dequant module from the old bias_dequant
-        newDequantModName = (
-            node.target.replace(".wrappedInnerForwardImpl", "") + "_unified_dequant"
-        )
-        # JUNGVI: Torch modules name cannot contain "."
-        newDequantModName = newDequantModName.replace(".", "_")
-
-        unifiedDequantMod = Dequant(
-            original_module=oldBiasDequantMod.original_module,
-            scale=oldBiasDequantMod.scale,
-            zero_point=oldBiasDequantMod.zero_point,
-            bit_width=oldBiasDequantMod.bit_width,
+        quantBias = biasDequant.args[0] if biasDequant is not None else None
+        node.args = (quantInput, weightDequant.args[0], quantBias) + tuple(
+            node.args[3:]
         )
 
-        fxModel.add_module(newDequantModName, unifiedDequantMod)
-
-        # Insert the new dequant node after the linear's forward_impl
+        baseName = node.target.replace(".wrappedInnerForwardImpl", "").replace(".", "_")
+        dequantName = uniqueName(fxModel, baseName + "_unified_dequant")
+        fxModel.add_module(
+            dequantName,
+            Dequant(
+                original_module=reference.original_module,
+                scale=scale,
+                zero_point=zeroPoint,
+                bit_width=bitWidth,
+            ),
+        )
         with graph.inserting_after(node):
-            newDequantNode = graph.call_module(newDequantModName, args=(node,))
+            newDequantNode = graph.call_module(dequantName, args=(node,))
+        output = newDequantNode
 
-        # Reroute all users of node to the new dequant node
-        old_users = list(node.users.keys())
-        for usr in old_users:
-            if usr is not newDequantNode:
-                newArgs = list(usr.args)
-                for i, a in enumerate(newArgs):
-                    if a is node:
-                        newArgs[i] = newDequantNode
-                usr.args = tuple(newArgs)
+        if floatBias is not None:
+            with graph.inserting_after(newDequantNode):
+                if floatBias.op == "get_attr":
+                    biasName = uniqueName(fxModel, baseName + "_float_bias")
+                    fxModel.register_buffer(
+                        biasName,
+                        fetchAttr(fxModel, floatBias.target)
+                        .detach()
+                        .reshape(shape)
+                        .clone(),
+                    )
+                    biasValue = graph.get_attr(biasName)
+                else:
+                    biasValue = graph.call_method("reshape", (floatBias, shape))
+            with graph.inserting_after(biasValue):
+                output = graph.call_function(operator.add, (newDequantNode, biasValue))
 
-        # Remove the old bias_dequant node from the graph
-        for usr in list(biasDequantNode.users.keys()):
-            biasDequantNode.users[usr] = None
-        if hasattr(fxModel, biasDequantNode.target):
-            delattr(fxModel, biasDequantNode.target)
-        graph.erase_node(biasDequantNode)
+        for user in list(node.users):
+            if user is not newDequantNode:
+                user.replace_input_with(node, output)
+
+        for oldNode in (*inputChain[::-1], inputDequant, weightDequant, biasDequant):
+            if oldNode is not None and len(oldNode.users) == 0:
+                graph.erase_node(oldNode)
 
         if debug:
             print(f"    {CHECK} Modification done for {node.target}")
