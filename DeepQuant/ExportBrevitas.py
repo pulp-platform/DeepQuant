@@ -125,7 +125,6 @@ def exportBrevitas(
     # Generate FX graph using the same tracer for consistency
     fxModel = customBrevitasTrace(
         root=transformedModel,  # Transformed model to trace
-        concreteArgs=(exampleInput,),
         tracer=tracer,  # Use same tracer to maintain consistency with transformations
     )
     fxModel.recompile()  # Recompile the FX module to update its forward method
